@@ -46,14 +46,12 @@ bool safeReadStringUntil(Stream     & input,
         }
 
         // found character, add to string
-        else {
-          str += char(c);
+        str += char(c);
 
-          // string at max size?
-          if (str.length() >= maxSize) {
-            addLog(LOG_LEVEL_ERROR, F("Not enough bufferspace to read all input data!"));
-            return false;
-          }
+        // string at max size?
+        if (str.length() >= maxSize) {
+          addLog(LOG_LEVEL_ERROR, F("Not enough bufferspace to read all input data!"));
+          return false;
         }
       }
 
@@ -73,38 +71,29 @@ bool safeReadStringUntil(Stream     & input,
   return false;
 }
 
-bool valid_controller_number(int controller_number) {
-  if (controller_number < 0) { return false; }
-  return true;
-
-  //  return getProtocolIndex(controller_number) <= protocolCount;
-}
-
-String get_formatted_Controller_number(int controller_number) {
-  if (!valid_controller_number(controller_number)) {
+String get_formatted_Controller_number(cpluginID_t cpluginID) {
+  if (!validCPluginID(cpluginID)) {
     return F("C---");
   }
   String result = F("C");
 
-  if (controller_number < 100) { result += '0'; }
+  if (cpluginID < 100) { result += '0'; }
 
-  if (controller_number < 10) { result += '0'; }
-  result += controller_number;
+  if (cpluginID < 10) { result += '0'; }
+  result += cpluginID;
   return result;
 }
-
 
 String get_auth_header(const String& user, const String& pass) {
   String authHeader = "";
 
-  if (user.length() != 0 && pass.length() != 0) {
-      base64 encoder;
-      String auth = user;
-      auth       += ":";
-      auth       += pass;
-      authHeader  = F("Authorization: Basic ");
-      authHeader += encoder.encode(auth);
-      authHeader += F(" \r\n");
+  if ((user.length() != 0) && (pass.length() != 0)) {
+    String auth = user;
+    auth       += ":";
+    auth       += pass;
+    authHeader  = F("Authorization: Basic ");
+    authHeader += base64::encode(auth);
+    authHeader += F(" \r\n");
   }
   return authHeader;
 }
@@ -112,12 +101,12 @@ String get_auth_header(const String& user, const String& pass) {
 String get_auth_header(int controller_index) {
   String authHeader = "";
 
-  if (controller_index < CONTROLLER_MAX) {
+  if (validControllerIndex(controller_index)) {
     if ((SecuritySettings.ControllerUser[controller_index][0] != 0) &&
         (SecuritySettings.ControllerPassword[controller_index][0] != 0))
     {
       authHeader = get_auth_header(
-        String(SecuritySettings.ControllerUser[controller_index]), 
+        String(SecuritySettings.ControllerUser[controller_index]),
         String(SecuritySettings.ControllerPassword[controller_index]));
     }
   } else {
@@ -153,7 +142,7 @@ String do_create_http_request(
                        + additional_options.length()
                        + 42;
 
-  if (content_length >= 0) { estimated_size += 25; }
+  if (content_length >= 0) { estimated_size += 45; }
   String request;
   request.reserve(estimated_size);
   request += method;
@@ -173,6 +162,12 @@ String do_create_http_request(
   request += hostportString;
   request += "\r\n";
   request += auth_header;
+
+  // Add request header as fall back.
+  // When adding another "accept" header, it may be interpreted as:
+  // "if you have XXX, send it; or failing that, just give me what you've got."
+  request += F("Accept: */*;q=0.1");
+  request += "\r\n";
   request += additional_options;
   request += get_user_agent_request_header_field();
   request += F("Connection: close\r\n");
@@ -262,21 +257,22 @@ void log_connecting_fail(const String& prefix, int controller_number, Controller
 bool count_connection_results(bool success, const String& prefix, int controller_number, ControllerSettingsStruct& ControllerSettings) {
   if (!success)
   {
-    connectionFailures++;
+    ++connectionFailures;
     log_connecting_fail(prefix, controller_number, ControllerSettings);
     return false;
   }
   statusLED(true);
 
-  if (connectionFailures) {
-    connectionFailures--;
+  if (connectionFailures > 0) {
+    --connectionFailures;
   }
   return true;
 }
 
 bool try_connect_host(int controller_number, WiFiUDP& client, ControllerSettingsStruct& ControllerSettings) {
   START_TIMER;
-  if (!WiFiConnected()) return false;
+
+  if (!WiFiConnected()) { return false; }
   client.setTimeout(ControllerSettings.ClientTimeout);
 #ifndef BUILD_NO_DEBUG
   log_connecting_to(F("UDP  : "), controller_number, ControllerSettings);
@@ -290,18 +286,23 @@ bool try_connect_host(int controller_number, WiFiUDP& client, ControllerSettings
 }
 
 bool try_connect_host(int controller_number, WiFiClient& client, ControllerSettingsStruct& ControllerSettings) {
+  return try_connect_host(controller_number, client, ControllerSettings, F("HTTP : "));	
+}	
+
+bool try_connect_host(int controller_number, WiFiClient& client, ControllerSettingsStruct& ControllerSettings, const String& loglabel) {
   START_TIMER;
-  if (!WiFiConnected()) return false;
+
+  if (!WiFiConnected()) { return false; }
 
   // Use WiFiClient class to create TCP connections
   client.setTimeout(ControllerSettings.ClientTimeout);
 #ifndef BUILD_NO_DEBUG
-  log_connecting_to(F("HTTP : "), controller_number, ControllerSettings);
+  log_connecting_to(loglabel, controller_number, ControllerSettings);
 #endif // ifndef BUILD_NO_DEBUG
-  bool success      = ControllerSettings.connectToHost(client);
-  const bool result = count_connection_results(
+  const bool success = ControllerSettings.connectToHost(client);
+  const bool result  = count_connection_results(
     success,
-    F("HTTP : "), controller_number, ControllerSettings);
+    loglabel, controller_number, ControllerSettings);
   STOP_TIMER(TRY_CONNECT_HOST_TCP);
   return result;
 }
@@ -311,7 +312,7 @@ bool try_connect_host(int controller_number, WiFiClient& client, ControllerSetti
 //      https://github.com/esp8266/Arduino/pull/1829
 bool client_available(WiFiClient& client) {
   delay(0);
-  return client.available() || client.connected();
+  return (client.available() != 0) || (client.connected() != 0);
 }
 
 bool send_via_http(const String& logIdentifier, WiFiClient& client, const String& postStr, bool must_check_reply) {

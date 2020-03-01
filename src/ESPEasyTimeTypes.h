@@ -5,12 +5,21 @@
 #include <list>
 #include <time.h>
 
+#include "src/Globals/Plugins.h"
+
 #define MAX_SCHEDULER_WAIT_TIME 5 // Max delay used in the scheduler for passing idle time.
 
 // convenient constants for TimeChangeRules
 enum week_t { Last = 0, First, Second, Third, Fourth };
 enum dow_t { Sun = 1, Mon, Tue, Wed, Thu, Fri, Sat };
 enum month_t { Jan = 1, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec };
+
+enum timeSource_t {
+  No_time_source,
+  NTP_time_source,
+  Restore_RTC_time_source,
+  GPS_time_source
+};
 
 // structure to describe rules for when daylight/summer time begins,
 // or when standard time begins.
@@ -54,6 +63,7 @@ struct TimeChangeRule {
 };
 
 // Forward declartions
+void     setExternalTimeSource(double time, timeSource_t source);
 void     applyTimeZone(uint32_t curTime = 0);
 void     setTimeZone(const TimeChangeRule& dstStart,
                      const TimeChangeRule& stdStart,
@@ -72,13 +82,19 @@ boolean  timeOutReached(unsigned long timer) ICACHE_RAM_ATTR;
 long     usecPassedSince(unsigned long timestamp) ICACHE_RAM_ATTR;
 boolean  usecTimeOutReached(unsigned long timer) ICACHE_RAM_ATTR;
 void     setPluginTaskTimer(unsigned long msecFromNow,
-                            byte          plugin,
-                            short         taskIndex,
+                            taskIndex_t   taskIndex,
                             int           Par1,
                             int           Par2 = 0,
                             int           Par3 = 0,
                             int           Par4 = 0,
                             int           Par5 = 0);
+void     setPluginTimer(unsigned long msecFromNow,
+                        pluginID_t   pluginID,
+                        int           Par1,
+                        int           Par2 = 0,
+                        int           Par3 = 0,
+                        int           Par4 = 0,
+                        int           Par5 = 0);
 void setGPIOTimer(unsigned long msecFromNow,
                   int           Par1,
                   int           Par2 = 0,

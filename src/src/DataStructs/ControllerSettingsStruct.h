@@ -8,6 +8,7 @@
 #include <memory> // For std::shared_ptr
 
 #include "../../ESPEasy_common.h"
+#include "../Globals/Plugins.h"
 
 class IPAddress;
 class WiFiClient;
@@ -67,9 +68,12 @@ class WiFiUDP;
 #define CONTROLLER_LWT_TOPIC                15
 #define CONTROLLER_LWT_CONNECT_MESSAGE      16
 #define CONTROLLER_LWT_DISCONNECT_MESSAGE   17
-#define CONTROLLER_TIMEOUT                  18
-#define CONTROLLER_SAMPLE_SET_INITIATOR     19
-#define CONTROLLER_ENABLED                  20 // Keep this as last, is used to loop over all parameters
+#define CONTROLLER_SEND_LWT                 18
+#define CONTROLLER_WILL_RETAIN              19
+#define CONTROLLER_CLEAN_SESSION            20
+#define CONTROLLER_TIMEOUT                  21
+#define CONTROLLER_SAMPLE_SET_INITIATOR     22
+#define CONTROLLER_ENABLED                  23 // Keep this as last, is used to loop over all parameters
 
 struct ControllerSettingsStruct
 {
@@ -94,6 +98,16 @@ struct ControllerSettingsStruct
 
   String    getHostPortString() const;
 
+  // MQTT_flags defaults to 0, keep in mind when adding bit lookups.
+  bool mqtt_cleanSession() const;
+  void mqtt_cleanSession(bool value);
+
+  bool mqtt_sendLWT() const;
+  void mqtt_sendLWT(bool value);
+
+  bool mqtt_willRetain() const;
+  void mqtt_willRetain(bool value);
+
   boolean      UseDNS;
   byte         IP[4];
   unsigned int Port;
@@ -109,7 +123,8 @@ struct ControllerSettingsStruct
   boolean      DeleteOldest;       // Action to perform when buffer full, delete oldest, or ignore newest.
   unsigned int ClientTimeout;
   boolean      MustCheckReply;     // When set to false, a sent message is considered always successful.
-  uint8_t      SampleSetInitiator; // The first plugin to start a sample set.
+  taskIndex_t  SampleSetInitiator; // The first task to start a sample set.
+  uint32_t     MQTT_flags;         // Various flags for MQTT controllers
 
 private:
 
@@ -120,6 +135,6 @@ private:
 
 typedef std::shared_ptr<ControllerSettingsStruct> ControllerSettingsStruct_ptr_type;
 #define MakeControllerSettings(T) ControllerSettingsStruct_ptr_type ControllerSettingsStruct_ptr(new ControllerSettingsStruct()); \
-  ControllerSettingsStruct& T = *ControllerSettingsStruct_ptr;
+  ControllerSettingsStruct& (T) = *ControllerSettingsStruct_ptr;
 
 #endif // DATASTRUCTS_CONTROLLERSETTINGSSTRUCT_H

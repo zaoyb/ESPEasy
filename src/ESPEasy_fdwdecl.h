@@ -2,8 +2,9 @@
 #define ESPEASY_FWD_DECL_H
 
 #include "ESPEasy_common.h"
-#include "define_plugin_sets.h"  // For USES_MQTT
 #include "src/DataStructs/ESPEasy_EventStruct.h"
+
+#include "src/Globals/CPlugins.h"
 
 // FIXME TD-er: This header file should only be included from .ino or .cpp files
 // This is only needed until the classes that need these can include the appropriate .h files to have these forward declared.
@@ -36,9 +37,8 @@ struct ControllerSettingsStruct;
 String   getUnknownString();
 void     scheduleNextDelayQueue(unsigned long id,
                                 unsigned long nextTime);
-String   LoadControllerSettings(int                       ControllerIndex,
+String   LoadControllerSettings(controllerIndex_t ControllerIndex,
                                 ControllerSettingsStruct& controller_settings);
-String   get_formatted_Controller_number(int controller_index);
 void     statusLED(bool traffic);
 void     backgroundtasks();
 uint32_t getCurrentFreeStack();
@@ -67,6 +67,7 @@ bool     connectClient(WiFiClient& client,
                        uint16_t    port);
 
 
+String getWifiModeString(WiFiMode_t wifimode);
 bool   WiFiConnected(uint32_t timeout_ms);
 bool   WiFiConnected();
 bool   useStaticIP();
@@ -107,21 +108,22 @@ bool safe_strncpy(char       *dest,
 
 void rulesProcessing(String& event);
 void setIntervalTimer(unsigned long id);
-byte getProtocolIndex(byte Number);
+void schedule_notification_event_timer(byte NotificationProtocolIndex, byte Function, struct EventStruct *event);
 
 #ifdef USES_MQTT
 
 // void runPeriodicalMQTT();
 // void updateMQTTclient_connected();
-// int firstEnabledMQTTController();
+controllerIndex_t firstEnabledMQTT_ControllerIndex();
 // String getMQTT_state();
 void callback(char        *c_topic,
               byte        *b_payload,
               unsigned int length);
 void MQTTDisconnect();
-bool MQTTConnect(int controller_idx);
-bool MQTTCheck(int controller_idx);
+bool MQTTConnect(controllerIndex_t controller_idx);
+bool MQTTCheck(controllerIndex_t controller_idx);
 void schedule_all_tasks_using_MQTT_controller();
+bool MQTTpublish(controllerIndex_t controller_idx, const char *topic, const char *payload, bool retained);
 #endif // ifdef USES_MQTT
 
 
@@ -131,14 +133,65 @@ void serialPrintln();
 bool GetArgv(const char *string, String& argvString, unsigned int argc);
 bool HasArgv(const char *string, unsigned int argc);
 boolean str2ip(const String& string, byte *IP);
-bool useStaticIP();
 String formatIP(const IPAddress& ip);
-String toString(bool value);
+String toString(float value, byte decimals);
+String boolToString(bool value);
+bool isInt(const String& tBuf);
+String formatToHex(unsigned long value, const String& prefix);
+String formatToHex(unsigned long value);
 
 float getCPUload();
 int getLoopCountPerSec();
 void serialPrint(const String& text);
 void setLogLevelFor(byte destination, byte logLevel);
 uint16_t getPortFromKey(uint32_t key);
+
+void initRTC();
+void deepSleepStart(int dsdelay);
+bool setControllerEnableStatus(controllerIndex_t controllerIndex, bool enabled);
+bool setTaskEnableStatus(taskIndex_t taskIndex, bool enabled);
+void taskClear(taskIndex_t taskIndex, bool save);
+void SensorSendTask(taskIndex_t TaskIndex);
+bool remoteConfig(struct EventStruct *event, const String& string);
+
+String parseString(const String& string, byte indexFind);
+String parseStringKeepCase(const String& string, byte indexFind);
+String parseStringToEnd(const String& string, byte indexFind);
+String parseStringToEndKeepCase(const String& string, byte indexFind);
+String tolerantParseStringKeepCase(const String& string, byte indexFind);
+
+int parseCommandArgumentInt(const String& string, unsigned int argc);
+
+String describeAllowedIPrange();
+void clearAccessBlock();
+String rulesProcessingFile(const String& fileName, String& event);
+int Calculate(const char *input, float* result);
+bool SourceNeedsStatusUpdate(byte eventSource);
+
+void WifiScan(bool async, bool quick = false);
+void WifiScan();
+void WiFiConnectRelaxed();
+void WifiDisconnect();
+void setAP(bool enable);
+void setSTA(bool enable);
+
+#include "src/Globals/ESPEasyWiFiEvent.h"
+
+void setWifiMode(WiFiMode_t wifimode);
+
+
+String SaveSettings(void);
+String LoadSettings();
+unsigned long FreeMem(void);
+void ResetFactory();
+void reboot();
+void SendUDPCommand(byte destUnit, const char *data, byte dataLength);
+
+#include <FS.h>
+void printDirectory(File dir, int numTabs);
+
+void delayBackground(unsigned long dsdelay);
+
+void setIntervalTimerOverride(unsigned long id, unsigned long msecFromNow); //implemented in Scheduler.ino
 
 #endif // ESPEASY_FWD_DECL_H

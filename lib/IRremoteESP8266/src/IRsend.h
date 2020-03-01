@@ -112,6 +112,41 @@ namespace stdAc {
   } state_t;
 };  // namespace stdAc
 
+
+enum fujitsu_ac_remote_model_t {
+  ARRAH2E = 1,  // (1) AR-RAH2E, AR-RAC1E, AR-RAE1E (Default)
+  ARDB1,        // (2) AR-DB1, AR-DL10 (AR-DL10 swing doesn't work)
+  ARREB1E,      // (3) AR-REB1E
+  ARJW2,        // (4) AR-JW2  (Same as ARDB1 but with horiz control)
+  ARRY4,        // (5) AR-RY4 (Same as AR-RAH2E but with clean & filter)
+};
+
+enum gree_ac_remote_model_t {
+  YAW1F = 1,  // (1) Ultimate, EKOKAI, RusClimate (Default)
+  YBOFB,     // (2) Green, YBOFB2, YAPOF3
+};
+
+enum panasonic_ac_remote_model_t {
+  kPanasonicUnknown = 0,
+  kPanasonicLke = 1,
+  kPanasonicNke = 2,
+  kPanasonicDke = 3,  // PKR too.
+  kPanasonicJke = 4,
+  kPanasonicCkp = 5,
+  kPanasonicRkr = 6,
+};
+
+enum whirlpool_ac_remote_model_t {
+  DG11J13A = 1,  // DG11J1-04 too
+  DG11J191,
+};
+
+enum lg_ac_remote_model_t {
+  GE6711AR2853M = 1,  // (1) LG 28-bit Protocol (default)
+  AKB75215403,        // (2) LG2 28-bit Protocol
+};
+
+
 // Classes
 class IRsend {
  public:
@@ -168,6 +203,8 @@ class IRsend {
   // a Sony command that will be accepted be a device.
   void sendSony(uint64_t data, uint16_t nbits = kSony20Bits,
                 uint16_t repeat = kSonyMinRepeat);
+  void sendSony38(uint64_t data, uint16_t nbits = kSony20Bits,
+                  uint16_t repeat = kSonyMinRepeat + 1);
   uint32_t encodeSony(uint16_t nbits, uint16_t command, uint16_t address,
                       uint16_t extended = 0);
 #endif
@@ -279,6 +316,11 @@ class IRsend {
   void sendMitsubishi136(const unsigned char data[],
                          const uint16_t nbytes = kMitsubishi136StateLength,
                          const uint16_t repeat = kMitsubishi136MinRepeat);
+#endif
+#if SEND_MITSUBISHI112
+  void sendMitsubishi112(const unsigned char data[],
+                         const uint16_t nbytes = kMitsubishi112StateLength,
+                         const uint16_t repeat = kMitsubishi112MinRepeat);
 #endif
 #if SEND_MITSUBISHI2
   void sendMitsubishi2(uint64_t data, uint16_t nbits = kMitsubishiBits,
@@ -422,13 +464,18 @@ class IRsend {
 #if SEND_HITACHI_AC1
   void sendHitachiAC1(const unsigned char data[],
                       const uint16_t nbytes = kHitachiAc1StateLength,
-                      const uint16_t repeat = kNoRepeat);
+                      const uint16_t repeat = kHitachiAcDefaultRepeat);
 #endif
 #if SEND_HITACHI_AC2
   void sendHitachiAC2(const unsigned char data[],
                       const uint16_t nbytes = kHitachiAc2StateLength,
-                      const uint16_t repeat = kNoRepeat);
+                      const uint16_t repeat = kHitachiAcDefaultRepeat);
 #endif
+#if SEND_HITACHI_AC424
+  void sendHitachiAc424(const unsigned char data[],
+                        const uint16_t nbytes = kHitachiAc424StateLength,
+                        const uint16_t repeat = kHitachiAcDefaultRepeat);
+#endif  // SEND_HITACHI_AC424
 #if SEND_GICABLE
   void sendGICable(uint64_t data, uint16_t nbits = kGicableBits,
                    uint16_t repeat = kGicableMinRepeat);
@@ -516,6 +563,10 @@ class IRsend {
   uint8_t _dutycycle;
   bool modulation;
   uint32_t calcUSecPeriod(uint32_t hz, bool use_offset = true);
+#if SEND_SONY
+  void _sendSony(uint64_t data, uint16_t nbits,
+                 uint16_t repeat, uint16_t freq);
+#endif
 };
 
 #endif  // IRSEND_H_

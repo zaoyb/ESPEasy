@@ -2,7 +2,9 @@
 #define _TAIL true
 #define CHUNKED_BUFFER_SIZE          400
 
+#include <WString.h>
 
+#include "src/Globals/CPlugins.h"
 #include "src/Globals/Device.h"
 #include "src/Static/WebStaticData.h"
 
@@ -316,10 +318,13 @@ void sendHeadandTail(const String& tmplName, boolean Tail = false, boolean reboo
   // This function is called twice per serving a web page.
   // So it must keep track of the timer longer than the scope of this function.
   // Therefore use a local static variable.
+  #ifdef USES_TIMING_STATS
   static unsigned statisticsTimerStart = 0;
+
   if (!Tail) {
     statisticsTimerStart = micros();
   }
+  #endif // ifdef USES_TIMING_STATS
 
   String pageTemplate = "";
   String fileName     = tmplName;
@@ -342,9 +347,9 @@ void sendHeadandTail(const String& tmplName, boolean Tail = false, boolean reboo
   lastWeb = millis();
 
   if (Tail) {
-    TXBuffer += pageTemplate.substring(
-      11 +                                     // Size of "{{content}}"
-      pageTemplate.indexOf(F("{{content}}"))); // advance beyond content key
+    addHtml(pageTemplate.substring(
+              11 +                                      // Size of "{{content}}"
+              pageTemplate.indexOf(F("{{content}}")))); // advance beyond content key
   } else {
     int indexStart = 0;
     int indexEnd   = 0;
@@ -357,8 +362,8 @@ void sendHeadandTail(const String& tmplName, boolean Tail = false, boolean reboo
     }
 
     while ((indexStart = pageTemplate.indexOf(F("{{"), indexStart)) >= 0) {
-      TXBuffer += pageTemplate.substring(readPos, indexStart);
-      readPos   = indexStart;
+      addHtml(pageTemplate.substring(readPos, indexStart));
+      readPos = indexStart;
 
       if ((indexEnd = pageTemplate.indexOf(F("}}"), indexStart)) > 0) {
         varName    = pageTemplate.substring(indexStart + 2, indexEnd);
@@ -372,7 +377,7 @@ void sendHeadandTail(const String& tmplName, boolean Tail = false, boolean reboo
           getErrorNotifications();
         }
         else if (varName == F("meta")) {
-          TXBuffer += meta;
+          addHtml(meta);
         }
         else {
           getWebPageTemplateVar(varName);
@@ -401,7 +406,50 @@ void sendHeadandTail_stdtemplate(boolean Tail = false, boolean rebooting = false
     if (!clientIPinSubnet() && WifiIsAP(WiFi.getMode()) && (WiFi.softAPgetStationNum() > 0)) {
       addHtmlError(F("Warning: Connected via AP"));
     }
+
+    if (loglevelActiveFor(LOG_LEVEL_INFO)) {
+      const int nrArgs = WebServer.args();
+
+      if (nrArgs > 0) {
+        String log = F(" Webserver args:");
+
+        for (int i = 0; i < nrArgs; ++i) {
+          log += ' ';
+          log += i;
+          log += F(": '");
+          log += WebServer.argName(i);
+          log += F("' length: ");
+          log += WebServer.arg(i).length();
+        }
+        addLog(LOG_LEVEL_INFO, log);
+      }
+    }
   }
+}
+
+size_t streamFile_htmlEscape(const String& fileName)
+{
+  fs::File f    = tryOpenFile(fileName, "r");
+  size_t   size = 0;
+
+  if (f)
+  {
+    String escaped;
+
+    while (f.available())
+    {
+      char c = (char)f.read();
+
+      if (htmlEscapeChar(c, escaped)) {
+        addHtml(escaped);
+      } else {
+        addHtml(String(c));
+      }
+      ++size;
+    }
+    f.close();
+  }
+  return size;
 }
 
 // ********************************************************************************
@@ -414,12 +462,13 @@ void sendHeadandTail_stdtemplate(boolean Tail = false, boolean rebooting = false
 #define HTML_SYMBOL_I_O     "&#8660;"
 
 
-# define TASKS_PER_PAGE TASKS_MAX
+#define TASKS_PER_PAGE TASKS_MAX
 
+// Uncrustify must not be used on macros, so turn it off.
+// *INDENT-OFF*
 #define strncpy_webserver_arg(D, N) safe_strncpy(D, WebServer.arg(N).c_str(), sizeof(D));
-#define update_whenset_FormItemInt(K, V) { int tmpVal; \
-                                           if (getCheckWebserverArg_int(K, tmpVal)) V = tmpVal; }
-
+// Uncrustify must not be used on macros, but we're now done, so turn Uncrustify on again.
+// *INDENT-ON*
 
 void WebServerInit()
 {
@@ -427,28 +476,50 @@ void WebServerInit()
   webserver_init = true;
 
   // Prepare webserver pages
+  #ifdef WEBSERVER_ROOT
   WebServer.on("/",                 handle_root);
+  #endif
+  #ifdef WEBSERVER_ADVANCED
   WebServer.on(F("/advanced"),      handle_advanced);
+  #endif
+  #ifdef WEBSERVER_CONFIG
   WebServer.on(F("/config"),        handle_config);
+  #endif
+  #ifdef WEBSERVER_CONTROL
   WebServer.on(F("/control"),       handle_control);
+  #endif
+  #ifdef WEBSERVER_CONTROLLERS
   WebServer.on(F("/controllers"),   handle_controllers);
+  #endif
+  #ifdef WEBSERVER_DEVICES
   WebServer.on(F("/devices"),       handle_devices);
+  #endif
+  #ifdef WEBSERVER_DOWNLOAD
   WebServer.on(F("/download"),      handle_download);
+  #endif
 
-
-  WebServer.on(F("/dumpcache"),     handle_dumpcache);  // C016 specific entrie
+#ifdef USES_C016
+  // WebServer.on(F("/dumpcache"),     handle_dumpcache);  // C016 specific entrie
   WebServer.on(F("/cache_json"),    handle_cache_json); // C016 specific entrie
   WebServer.on(F("/cache_csv"),     handle_cache_csv);  // C016 specific entrie
+#endif // USES_C016
 
-
+  #ifdef WEBSERVER_FACTORY_RESET
   WebServer.on(F("/factoryreset"),  handle_factoryreset);
+  #endif
   #ifdef USE_SETTINGS_ARCHIVE
   WebServer.on(F("/settingsarchive"), handle_settingsarchive);
   #endif
   WebServer.on(F("/favicon.ico"),   handle_favicon);
+  #ifdef WEBSERVER_FILELIST
   WebServer.on(F("/filelist"),      handle_filelist);
+  #endif
+  #ifdef WEBSERVER_HARDWARE
   WebServer.on(F("/hardware"),      handle_hardware);
+  #endif
+  #ifdef WEBSERVER_I2C_SCANNER
   WebServer.on(F("/i2cscanner"),    handle_i2cscanner);
+  #endif
   WebServer.on(F("/json"),          handle_json);     // Also part of WEBSERVER_NEW_UI
   WebServer.on(F("/log"),           handle_log);
   WebServer.on(F("/login"),         handle_login);
@@ -456,7 +527,10 @@ void WebServerInit()
 #ifndef NOTIFIER_SET_NONE
   WebServer.on(F("/notifications"), handle_notifications);
 #endif // ifndef NOTIFIER_SET_NONE
+  #ifdef WEBSERVER_PINSTATES
   WebServer.on(F("/pinstates"),     handle_pinstates);
+  #endif
+  #ifdef WEBSERVER_RULES
   WebServer.on(F("/rules"),         handle_rules_new);
   WebServer.on(F("/rules/"),        Goto_Rules_Root);
   WebServer.on(F("/rules/add"),     []()
@@ -465,23 +539,35 @@ void WebServerInit()
   });
   WebServer.on(F("/rules/backup"),      handle_rules_backup);
   WebServer.on(F("/rules/delete"),      handle_rules_delete);
+  #endif // WEBSERVER_RULES
 #ifdef FEATURE_SD
   WebServer.on(F("/SDfilelist"),        handle_SDfilelist);
 #endif // ifdef FEATURE_SD
+#ifdef WEBSERVER_SETUP
   WebServer.on(F("/setup"),             handle_setup);
+#endif
+#ifdef WEBSERVER_SYSINFO
   WebServer.on(F("/sysinfo"),           handle_sysinfo);
+#endif
 #ifdef WEBSERVER_SYSVARS
   WebServer.on(F("/sysvars"),           handle_sysvars);
 #endif // WEBSERVER_SYSVARS
 #ifdef WEBSERVER_TIMINGSTATS
   WebServer.on(F("/timingstats"),       handle_timingstats);
 #endif // WEBSERVER_TIMINGSTATS
+#ifdef WEBSERVER_TOOLS
   WebServer.on(F("/tools"),             handle_tools);
+#endif
+#ifdef WEBSERVER_UPLOAD
   WebServer.on(F("/upload"),            HTTP_GET,  handle_upload);
   WebServer.on(F("/upload"),            HTTP_POST, handle_upload_post, handleFileUpload);
+#endif
+#ifdef WEBSERVER_WIFI_SCANNER
   WebServer.on(F("/wifiscanner"),       handle_wifiscanner);
+#endif
 
 #ifdef WEBSERVER_NEW_UI
+  WebServer.on(F("/buildinfo"),         handle_buildinfo);     // Also part of WEBSERVER_NEW_UI
   WebServer.on(F("/factoryreset_json"), handle_factoryreset_json);
   WebServer.on(F("/filelist_json"),     handle_filelist_json);
   WebServer.on(F("/i2cscanner_json"),   handle_i2cscanner_json);
@@ -497,17 +583,20 @@ void WebServerInit()
 
   #if defined(ESP8266)
   {
-    #ifndef NO_HTTP_UPDATER
+    # ifndef NO_HTTP_UPDATER
     uint32_t maxSketchSize;
     bool     use2step;
+
     if (OTA_possible(maxSketchSize, use2step)) {
       httpUpdater.setup(&WebServer);
     }
-    #endif
+    # endif // ifndef NO_HTTP_UPDATER
   }
-  #endif // if defined(ESP8266)
+  #endif    // if defined(ESP8266)
 
   #if defined(ESP8266)
+
+  # ifdef USES_SSDP
 
   if (Settings.UseSSDP)
   {
@@ -518,7 +607,36 @@ void WebServerInit()
     });
     SSDP_begin();
   }
-  #endif // if defined(ESP8266)
+  # endif // USES_SSDP
+  #endif  // if defined(ESP8266)
+}
+
+void set_mDNS() {
+  #ifdef FEATURE_MDNS
+
+  if (webserverRunning) {
+    addLog(LOG_LEVEL_INFO, F("WIFI : Starting mDNS..."));
+    bool mdns_started = MDNS.begin(WifiGetHostname().c_str());
+    MDNS.setInstanceName(WifiGetHostname()); // Needed for when the hostname has changed.
+
+    if (loglevelActiveFor(LOG_LEVEL_INFO)) {
+      String log = F("WIFI : ");
+
+      if (mdns_started) {
+        log += F("mDNS started, with name: ");
+        log += getValue(LabelType::M_DNS);
+      }
+      else {
+        log += F("mDNS failed");
+      }
+      addLog(LOG_LEVEL_INFO, log);
+    }
+
+    if (mdns_started) {
+      MDNS.addService("http", "tcp", 80);
+    }
+  }
+  #endif // ifdef FEATURE_MDNS
 }
 
 void setWebserverRunning(bool state) {
@@ -535,6 +653,7 @@ void setWebserverRunning(bool state) {
     addLog(LOG_LEVEL_INFO, F("Webserver: stop"));
   }
   webserverRunning = state;
+  set_mDNS(); // Uses webserverRunning state.
 }
 
 void getWebPageTemplateDefault(const String& tmplName, String& tmpl)
@@ -629,11 +748,11 @@ void getErrorNotifications() {
   // Check number of MQTT controllers active.
   int nrMQTTenabled = 0;
 
-  for (byte x = 0; x < CONTROLLER_MAX; x++) {
+  for (controllerIndex_t x = 0; x < CONTROLLER_MAX; x++) {
     if (Settings.Protocol[x] != 0) {
-      byte ProtocolIndex = getProtocolIndex(Settings.Protocol[x]);
+      protocolIndex_t ProtocolIndex = getProtocolIndex_from_ControllerIndex(x);
 
-      if (Settings.ControllerEnabled[x] && Protocol[ProtocolIndex].usesMQTT) {
+      if (validProtocolIndex(ProtocolIndex) && Settings.ControllerEnabled[x] && Protocol[ProtocolIndex].usesMQTT) {
         ++nrMQTTenabled;
       }
     }
@@ -657,6 +776,48 @@ void getErrorNotifications() {
 #define MENU_INDEX_TOOLS         7
 static byte navMenuIndex = MENU_INDEX_MAIN;
 
+// See https://github.com/letscontrolit/ESPEasy/issues/1650
+String getGpMenuIcon(byte index) {
+  switch (index) {
+    case MENU_INDEX_MAIN          : return F("&#8962;");  
+    case MENU_INDEX_CONFIG        : return F("&#9881;");  
+    case MENU_INDEX_CONTROLLERS   : return F("&#128172;");
+    case MENU_INDEX_HARDWARE      : return F("&#128204;");
+    case MENU_INDEX_DEVICES       : return F("&#128268;");
+    case MENU_INDEX_RULES         : return F("&#10740;"); 
+    case MENU_INDEX_NOTIFICATIONS : return F("&#9993;");  
+    case MENU_INDEX_TOOLS         : return F("&#128295;");
+  }
+  return "";
+}
+
+String getGpMenuLabel(byte index) {
+  switch (index) {
+    case MENU_INDEX_MAIN          : return F("Main");         
+    case MENU_INDEX_CONFIG        : return F("Config");       
+    case MENU_INDEX_CONTROLLERS   : return F("Controllers");  
+    case MENU_INDEX_HARDWARE      : return F("Hardware");     
+    case MENU_INDEX_DEVICES       : return F("Devices");      
+    case MENU_INDEX_RULES         : return F("Rules");        
+    case MENU_INDEX_NOTIFICATIONS : return F("Notifications");
+    case MENU_INDEX_TOOLS         : return F("Tools");        
+  }
+  return "";
+}
+
+String getGpMenuURL(byte index) {
+  switch (index) {
+    case MENU_INDEX_MAIN          : return F("/");             
+    case MENU_INDEX_CONFIG        : return F("/config");       
+    case MENU_INDEX_CONTROLLERS   : return F("/controllers");  
+    case MENU_INDEX_HARDWARE      : return F("/hardware");     
+    case MENU_INDEX_DEVICES       : return F("/devices");      
+    case MENU_INDEX_RULES         : return F("/rules");        
+    case MENU_INDEX_NOTIFICATIONS : return F("/notifications");
+    case MENU_INDEX_TOOLS         : return F("/tools");        
+  }
+  return "";
+}
 
 void getWebPageTemplateVar(const String& varName)
 {
@@ -666,30 +827,17 @@ void getWebPageTemplateVar(const String& varName)
 
   if (varName == F("name"))
   {
-    TXBuffer += Settings.Name;
+    addHtml(Settings.Name);
   }
 
   else if (varName == F("unit"))
   {
-    TXBuffer += String(Settings.Unit);
+    addHtml(String(Settings.Unit));
   }
 
   else if (varName == F("menu"))
   {
-    static const __FlashStringHelper *gpMenu[8][3] = {
-      // See https://github.com/letscontrolit/ESPEasy/issues/1650
-      // Icon,        Full width label,   URL
-      F("&#8962;"),   F("Main"),          F("/"),              // 0
-      F("&#9881;"),   F("Config"),        F("/config"),        // 1
-      F("&#128172;"), F("Controllers"),   F("/controllers"),   // 2
-      F("&#128204;"), F("Hardware"),      F("/hardware"),      // 3
-      F("&#128268;"), F("Devices"),       F("/devices"),       // 4
-      F("&#10740;"),  F("Rules"),         F("/rules"),         // 5
-      F("&#9993;"),   F("Notifications"), F("/notifications"), // 6
-      F("&#128295;"), F("Tools"),         F("/tools"),         // 7
-    };
-
-    TXBuffer += F("<div class='menubar'>");
+    addHtml(F("<div class='menubar'>"));
 
     for (byte i = 0; i < 8; i++)
     {
@@ -703,29 +851,28 @@ void getWebPageTemplateVar(const String& varName)
       }
 #endif // ifdef NOTIFIER_SET_NONE
 
-      TXBuffer += F("<a class='menu");
+      addHtml(F("<a class='menu"));
 
       if (i == navMenuIndex) {
-        TXBuffer += F(" active");
+        addHtml(F(" active"));
       }
-      TXBuffer += F("' href='");
-      TXBuffer += gpMenu[i][2];
-      TXBuffer += "'>";
-      TXBuffer += gpMenu[i][0];
-      TXBuffer += F("<span class='showmenulabel'>");
-      TXBuffer += gpMenu[i][1];
-      TXBuffer += F("</span>");
-      TXBuffer += F("</a>");
+      addHtml(F("' href='"));
+      addHtml(getGpMenuURL(i));
+      addHtml("'>");
+      addHtml(getGpMenuIcon(i));
+      addHtml(F("<span class='showmenulabel'>"));
+      addHtml(getGpMenuLabel(i));
+      addHtml(F("</span></a>"));
     }
 
-    TXBuffer += F("</div>");
+    addHtml(F("</div>"));
   }
 
   else if (varName == F("logo"))
   {
     if (SPIFFS.exists(F("esp.png")))
     {
-      TXBuffer = F("<img src=\"esp.png\" width=48 height=48 align=right>");
+      addHtml(F("<img src=\"esp.png\" width=48 height=48 align=right>"));
     }
   }
 
@@ -734,15 +881,15 @@ void getWebPageTemplateVar(const String& varName)
     if (SPIFFS.exists(F("esp.css"))) // now css is written in writeDefaultCSS() to SPIFFS and always present
     // if (0) //TODO
     {
-      TXBuffer = F("<link rel=\"stylesheet\" type=\"text/css\" href=\"esp.css\">");
+      addHtml(F("<link rel=\"stylesheet\" type=\"text/css\" href=\"esp.css\">"));
     }
     else
     {
-      TXBuffer += F("<style>");
+      addHtml(F("<style>"));
 
       // Send CSS per chunk to avoid sending either too short or too large strings.
       TXBuffer += DATA_ESPEASY_DEFAULT_MIN_CSS;
-      TXBuffer += F("</style>");
+      addHtml(F("</style>"));
     }
   }
 
@@ -800,29 +947,54 @@ void writeDefaultCSS(void)
   }
 }
 
+// ********************************************************************************
+// Functions to stream JSON directly to TXBuffer
+// FIXME TD-er: replace stream_xxx_json_object* into this code.
+// N.B. handling of numerical values differs (string vs. no string)
+// ********************************************************************************
+
 int8_t level     = 0;
 int8_t lastLevel = -1;
 
 void json_quote_name(const String& val) {
-  if (lastLevel == level) { TXBuffer += ","; }
+  String html;
+
+  html.reserve(4 + val.length());
+
+  if (lastLevel == level) {
+    html += ",";
+  }
 
   if (val.length() > 0) {
-    TXBuffer += '\"';
-    TXBuffer += val;
-    TXBuffer += '\"';
-    TXBuffer += ':';
+    html += '\"';
+    html += val;
+    html += '\"';
+    html += ':';
   }
+  addHtml(html);
 }
 
 void json_quote_val(const String& val) {
-  TXBuffer += '\"';
-  TXBuffer += val;
-  TXBuffer += '\"';
+  String html;
+
+  html.reserve(4 + val.length());
+  html += '\"';
+  html += val;
+  html += '\"';
+  addHtml(html);
 }
 
-void json_open(bool arr = false, const String& name = String()) {
+void json_open() {
+  json_open(false, String());
+}
+
+void json_open(bool arr) {
+  json_open(arr, String());
+}
+
+void json_open(bool arr, const String& name) {
   json_quote_name(name);
-  TXBuffer += arr ? "[" : "{";
+  addHtml(arr ? "[" : "{");
   lastLevel = level;
   level++;
 }
@@ -832,8 +1004,12 @@ void json_init() {
   lastLevel = -1;
 }
 
-void json_close(bool arr = false) {
-  TXBuffer += arr ? "]" : "}";
+void json_close() {
+  json_close(false);
+}
+
+void json_close(bool arr) {
+  addHtml(arr ? "]" : "}");
   level--;
   lastLevel = level;
 }
@@ -850,74 +1026,99 @@ void json_prop(const String& name, const String& value) {
   lastLevel = level;
 }
 
+void json_prop(LabelType::Enum label) {
+  json_prop(getInternalLabel(label, '-'), getValue(label));
+}
+
 // ********************************************************************************
 // Add a task select dropdown list
+// This allows to select a task index based on the existing tasks.
 // ********************************************************************************
-void addTaskSelect(const String& name,  int choice)
+void addTaskSelect(const String& name,  taskIndex_t choice)
 {
   String deviceName;
 
-  TXBuffer += F("<select id='selectwidth' name='");
-  TXBuffer += name;
-  TXBuffer += F("' onchange='return dept_onchange(frmselect)'>");
+  addHtml(F("<select id='selectwidth' name='"));
+  addHtml(name);
+  addHtml(F("' onchange='return dept_onchange(frmselect)'>"));
 
-  for (byte x = 0; x < TASKS_MAX; x++)
+  for (taskIndex_t x = 0; x < TASKS_MAX; x++)
   {
-    deviceName = "";
-
-    if (Settings.TaskDeviceNumber[x] != 0)
-    {
-      byte DeviceIndex = getDeviceIndex(Settings.TaskDeviceNumber[x]);
-
-      if (Plugin_id[DeviceIndex] != 0) {
-        deviceName = getPluginNameFromDeviceIndex(DeviceIndex);
-      }
-    }
+    const deviceIndex_t DeviceIndex = getDeviceIndex_from_TaskIndex(x);
+    deviceName = getPluginNameFromDeviceIndex(DeviceIndex);
     LoadTaskSettings(x);
-    TXBuffer += F("<option value='");
-    TXBuffer += x;
-    TXBuffer += '\'';
 
-    if (choice == x) {
-      TXBuffer += F(" selected");
+    {
+      String html;
+      html.reserve(32);
+
+      html += F("<option value='");
+      html += x;
+      html += '\'';
+
+      if (choice == x) {
+        html += F(" selected");
+      }
+      addHtml(html);
     }
 
-    if (Settings.TaskDeviceNumber[x] == 0) {
+    if (!validPluginID_fullcheck(Settings.TaskDeviceNumber[x])) {
       addDisabled();
     }
-    TXBuffer += '>';
-    TXBuffer += x + 1;
-    TXBuffer += F(" - ");
-    TXBuffer += deviceName;
-    TXBuffer += F(" - ");
-    TXBuffer += ExtraTaskSettings.TaskDeviceName;
-    TXBuffer += F("</option>");
+    {
+      String html;
+      html.reserve(96);
+
+      html += '>';
+      html += x + 1;
+      html += F(" - ");
+      html += deviceName;
+      html += F(" - ");
+      html += ExtraTaskSettings.TaskDeviceName;
+      html += F("</option>");
+      addHtml(html);
+    }
   }
 }
 
 // ********************************************************************************
 // Add a Value select dropdown list, based on TaskIndex
+// This allows to select a task value, based on the existing tasks.
 // ********************************************************************************
-void addTaskValueSelect(const String& name, int choice, byte TaskIndex)
+void addTaskValueSelect(const String& name, int choice, taskIndex_t TaskIndex)
 {
-  TXBuffer += F("<select id='selectwidth' name='");
-  TXBuffer += name;
-  TXBuffer += "'>";
+  if (!validTaskIndex(TaskIndex)) { return; }
+  const deviceIndex_t DeviceIndex = getDeviceIndex_from_TaskIndex(TaskIndex);
 
-  byte DeviceIndex = getDeviceIndex(Settings.TaskDeviceNumber[TaskIndex]);
+  if (!validDeviceIndex(DeviceIndex)) { return; }
+
+  {
+    String html;
+    html.reserve(34 + name.length());
+
+    html += F("<select id='selectwidth' name='");
+    html += name;
+    html += "'>";
+    addHtml(html);
+  }
+
+  LoadTaskSettings(TaskIndex);
 
   for (byte x = 0; x < Device[DeviceIndex].ValueCount; x++)
   {
-    TXBuffer += F("<option value='");
-    TXBuffer += x;
-    TXBuffer += '\'';
+    String html;
+    html.reserve(96);
+    html += F("<option value='");
+    html += x;
+    html += '\'';
 
     if (choice == x) {
-      TXBuffer += F(" selected");
+      html += F(" selected");
     }
-    TXBuffer += '>';
-    TXBuffer += ExtraTaskSettings.TaskDeviceValueNames[x];
-    TXBuffer += F("</option>");
+    html += '>';
+    html += ExtraTaskSettings.TaskDeviceValueNames[x];
+    html += F("</option>");
+    addHtml(html);
   }
 }
 
@@ -976,72 +1177,88 @@ String getControllerSymbol(byte index)
    return ret;
    }
  */
-
 void addSVG_param(const String& key, float value) {
   String value_str = String(value, 2);
+
   addSVG_param(key, value_str);
 }
 
 void addSVG_param(const String& key, const String& value) {
-  TXBuffer += ' ';
-  TXBuffer += key;
-  TXBuffer += '=';
-  TXBuffer += '\"';
-  TXBuffer += value;
-  TXBuffer += '\"';
+  String html;
+
+  html.reserve(8 + key.length() + value.length());
+  html += ' ';
+  html += key;
+  html += '=';
+  html += '\"';
+  html += value;
+  html += '\"';
+  addHtml(html);
 }
 
 void createSvgRect_noStroke(unsigned int fillColor, float xoffset, float yoffset, float width, float height, float rx, float ry) {
   createSvgRect(fillColor, fillColor, xoffset, yoffset, width, height, 0, rx, ry);
 }
 
-void createSvgRect(unsigned int fillColor, unsigned int strokeColor, float xoffset, float yoffset, float width, float height, float strokeWidth, float rx, float ry) {
-  TXBuffer += F("<rect");
+void createSvgRect(unsigned int fillColor,
+                   unsigned int strokeColor,
+                   float        xoffset,
+                   float        yoffset,
+                   float        width,
+                   float        height,
+                   float        strokeWidth,
+                   float        rx,
+                   float        ry) {
+  addHtml(F("<rect"));
   addSVG_param(F("fill"), formatToHex(fillColor, F("#")));
+
   if (strokeWidth != 0) {
-    addSVG_param(F("stroke"), formatToHex(strokeColor, F("#")));
+    addSVG_param(F("stroke"),       formatToHex(strokeColor, F("#")));
     addSVG_param(F("stroke-width"), strokeWidth);
   }
-  addSVG_param("x", xoffset);
-  addSVG_param("y", yoffset);
-  addSVG_param(F("width"), width);
+  addSVG_param("x",         xoffset);
+  addSVG_param("y",         yoffset);
+  addSVG_param(F("width"),  width);
   addSVG_param(F("height"), height);
-  addSVG_param(F("rx"), rx);
-  addSVG_param(F("ry"), ry);
-  TXBuffer += F("/>");
+  addSVG_param(F("rx"),     rx);
+  addSVG_param(F("ry"),     ry);
+  addHtml(F("/>"));
 }
 
 void createSvgHorRectPath(unsigned int color, int xoffset, int yoffset, int size, int height, int range, float SVG_BAR_WIDTH) {
   float width = SVG_BAR_WIDTH * size / range;
 
   if (width < 2) { width = 2; }
-  TXBuffer += formatToHex(color, F("<path fill=\"#"));
-  TXBuffer += F("\" d=\"M");
-  TXBuffer += toString(SVG_BAR_WIDTH * xoffset / range, 2);
-  TXBuffer += ' ';
-  TXBuffer += yoffset;
-  TXBuffer += 'h';
-  TXBuffer += toString(width, 2);
-  TXBuffer += 'v';
-  TXBuffer += height;
-  TXBuffer += 'H';
-  TXBuffer += toString(SVG_BAR_WIDTH * xoffset / range, 2);
-  TXBuffer += F("z\"/>\n");
+  String html;
+  html.reserve(96);
+  html += formatToHex(color, F("<path fill=\"#"));
+  html += F("\" d=\"M");
+  html += toString(SVG_BAR_WIDTH * xoffset / range, 2);
+  html += ' ';
+  html += yoffset;
+  html += 'h';
+  html += toString(width, 2);
+  html += 'v';
+  html += height;
+  html += 'H';
+  html += toString(SVG_BAR_WIDTH * xoffset / range, 2);
+  html += F("z\"/>\n");
+  addHtml(html);
 }
 
 void createSvgTextElement(const String& text, float textXoffset, float textYoffset) {
-  TXBuffer += F("<text style=\"line-height:1.25\" x=\"");
-  TXBuffer += toString(textXoffset, 2);
-  TXBuffer += F("\" y=\"");
-  TXBuffer += toString(textYoffset, 2);
-  TXBuffer += F("\" stroke-width=\".3\" font-family=\"sans-serif\" font-size=\"8\" letter-spacing=\"0\" word-spacing=\"0\">\n");
-  TXBuffer += F("<tspan x=\"");
-  TXBuffer += toString(textXoffset, 2);
-  TXBuffer += F("\" y=\"");
-  TXBuffer += toString(textYoffset, 2);
-  TXBuffer += "\">";
-  TXBuffer += text;
-  TXBuffer += F("</tspan>\n</text>");
+  addHtml(F("<text style=\"line-height:1.25\" x=\""));
+  addHtml(toString(textXoffset, 2));
+  addHtml(F("\" y=\""));
+  addHtml(toString(textYoffset, 2));
+  addHtml(F("\" stroke-width=\".3\" font-family=\"sans-serif\" font-size=\"8\" letter-spacing=\"0\" word-spacing=\"0\">\n"));
+  addHtml(F("<tspan x=\""));
+  addHtml(toString(textXoffset, 2));
+  addHtml(F("\" y=\""));
+  addHtml(toString(textYoffset, 2));
+  addHtml("\">");
+  addHtml(text);
+  addHtml(F("</tspan>\n</text>"));
 }
 
 unsigned int getSettingsTypeColor(SettingsType settingsType) {
@@ -1072,49 +1289,53 @@ void write_SVG_image_header(int width, int height) {
 }
 
 void write_SVG_image_header(int width, int height, bool useViewbox) {
-  TXBuffer += F("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"");
-  TXBuffer += width;
-  TXBuffer += F("\" height=\"");
-  TXBuffer += height;
-  TXBuffer += F("\" version=\"1.1\"");
+  String html;
+
+  html.reserve(128);
+  html += F("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"");
+  html += width;
+  html += F("\" height=\"");
+  html += height;
+  html += F("\" version=\"1.1\"");
 
   if (useViewbox) {
-    TXBuffer += F(" viewBox=\"0 0 100 100\"");
+    html += F(" viewBox=\"0 0 100 100\"");
   }
-  TXBuffer += '>';
+  html += '>';
+  addHtml(html);
 }
 
 /*
-void getESPeasyLogo(int width_pixels) {
-  write_SVG_image_header(width_pixels, width_pixels, true);
-  TXBuffer += F("<g transform=\"translate(-33.686 -7.8142)\">");
-  TXBuffer += F("<rect x=\"49\" y=\"23.1\" width=\"69.3\" height=\"69.3\" fill=\"#2c72da\" stroke=\"#2c72da\" stroke-linecap=\"round\"stroke-linejoin=\"round\" stroke-width=\"30.7\"/>");
-  TXBuffer += F("<g transform=\"matrix(3.3092 0 0 3.3092 -77.788 -248.96)\">");
-  TXBuffer += F("<path d=\"m37.4 89 7.5-7.5M37.4 96.5l15-15M37.4 96.5l15-15M37.4 104l22.5-22.5M44.9 104l15-15\" fill=\"none\"stroke=\"#fff\" stroke-linecap=\"round\" stroke-width=\"2.6\"/>");
-  TXBuffer += F("<circle cx=\"58\" cy=\"102.1\" r=\"3\" fill=\"#fff\"/>");
-  TXBuffer += F("</g></g></svg>");
-}
-*/
-
+   void getESPeasyLogo(int width_pixels) {
+   write_SVG_image_header(width_pixels, width_pixels, true);
+   addHtml(F("<g transform=\"translate(-33.686 -7.8142)\"><rect x=\"49\" y=\"23.1\" width=\"69.3\" height=\"69.3\" fill=\"#2c72da\"
+      stroke=\"#2c72da\"
+      stroke-linecap=\"round\"stroke-linejoin=\"round\" stroke-width=\"30.7\"/><g transform=\"matrix(3.3092 0 0 3.3092 -77.788
+         -248.96)\"><path d=\"m37.4 89 7.5-7.5M37.4 96.5l15-15M37.4 96.5l15-15M37.4 104l22.5-22.5M44.9 104l15-15\"
+      fill=\"none\"stroke=\"#fff\" stroke-linecap=\"round\" stroke-width=\"2.6\"/><circle cx=\"58\" cy=\"102.1\" r=\"3\"
+         fill=\"#fff\"/></g></g></svg>");
+   }
+ */
 void getWiFi_RSSI_icon(int rssi, int width_pixels)
 {
   const int nbars_filled = (rssi + 100) / 8;
-  int nbars = 5;
-  int white_between_bar = (static_cast<float>(width_pixels) / nbars) * 0.2;
+  int nbars              = 5;
+  int white_between_bar  = (static_cast<float>(width_pixels) / nbars) * 0.2;
+
   if (white_between_bar < 1) { white_between_bar = 1; }
-  const int barWidth = (width_pixels - (nbars - 1) * white_between_bar) / nbars;
+  const int barWidth   = (width_pixels - (nbars - 1) * white_between_bar) / nbars;
   int svg_width_pixels = nbars * barWidth + (nbars - 1) * white_between_bar;
   write_SVG_image_header(svg_width_pixels, svg_width_pixels, true);
-  float scale = 100 / svg_width_pixels;
+  float scale               = 100 / svg_width_pixels;
   const int bar_height_step = 100 / nbars;
+
   for (int i = 0; i < nbars; ++i) {
-    unsigned int color = i < nbars_filled ? 0x0 : 0xa1a1a1;  // Black/Grey
-    int barHeight = (i + 1) * bar_height_step;
+    unsigned int color = i < nbars_filled ? 0x0 : 0xa1a1a1; // Black/Grey
+    int barHeight      = (i + 1) * bar_height_step;
     createSvgRect_noStroke(color, i * (barWidth + white_between_bar) * scale, 100 - barHeight, barWidth, barHeight, 0, 0);
   }
-  TXBuffer += F("</svg>\n");
+  addHtml(F("</svg>\n"));
 }
-
 
 #ifndef BUILD_MINIMAL_OTA
 void getConfig_dat_file_layout() {
@@ -1150,7 +1371,7 @@ void getConfig_dat_file_layout() {
   float textXoffset = SVG_BAR_WIDTH + 2;
   float textYoffset = yOffset + 0.9 * SVG_BAR_HEIGHT;
   createSvgTextElement(F("Config.dat"), textXoffset, textYoffset);
-  TXBuffer += F("</svg>\n");
+  addHtml(F("</svg>\n"));
 }
 
 void getStorageTableSVG(SettingsType settingsType) {
@@ -1210,7 +1431,7 @@ void getStorageTableSVG(SettingsType settingsType) {
   } else {
     createSvgTextElement(F("Variable size"), textXoffset, textYoffset);
   }
-  TXBuffer += F("</svg>\n");
+  addHtml(F("</svg>\n"));
 }
 
 #endif // ifndef BUILD_MINIMAL_OTA
@@ -1260,7 +1481,7 @@ void getPartitionTableSVG(byte pType, unsigned int partitionColor) {
       yOffset += SVG_BAR_HEIGHT;
     } while ((_mypartiterator = esp_partition_next(_mypartiterator)) != NULL);
   }
-  TXBuffer += F("</svg>\n");
+  addHtml(F("</svg>\n"));
   esp_partition_iterator_release(_mypartiterator);
 }
 

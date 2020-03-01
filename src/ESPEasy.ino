@@ -102,12 +102,14 @@
 #include "src/DataStructs/SystemTimerStruct.h"
 #include "src/DataStructs/TimingStats.h"
 
+#include "src/Globals/CPlugins.h"
 #include "src/Globals/Device.h"
 #include "src/Globals/ESPEasyWiFiEvent.h"
 #include "src/Globals/ExtraTaskSettings.h"
 #include "src/Globals/GlobalMapPortStatus.h"
 #include "src/Globals/MQTT.h"
 #include "src/Globals/Plugins.h"
+#include "src/Globals/Protocol.h"
 #include "src/Globals/RTC.h"
 #include "src/Globals/SecuritySettings.h"
 #include "src/Globals/Services.h"
@@ -136,9 +138,9 @@ float& getUserVar(unsigned int varIndex) {return UserVar[varIndex]; }
 
 #ifdef USES_BLYNK
 // Blynk_get prototype
-boolean Blynk_get(const String& command, byte controllerIndex,float *data = NULL );
+boolean Blynk_get(const String& command, controllerIndex_t controllerIndex,float *data = NULL );
 
-int firstEnabledBlynkController();
+controllerIndex_t firstEnabledBlynk_ControllerIndex();
 #endif
 
 //void checkRAM( const __FlashStringHelper* flashString);
@@ -182,7 +184,11 @@ void setup()
 #endif
   WiFi.persistent(false); // Do not use SDK storage of SSID/WPA parameters
   WiFi.setAutoReconnect(false);
+  // The WiFi.disconnect() ensures that the WiFi is working correctly. If this is not done before receiving WiFi connections,
+  // those WiFi connections will take a long time to make or sometimes will not work at all.
+  WiFi.disconnect();
   setWifiMode(WIFI_OFF);
+  
   run_compiletime_checks();
   lowestFreeStack = getFreeStackWatermark();
   lowestRAM = FreeMem();
@@ -191,8 +197,6 @@ void setup()
 #endif
 
   resetPluginTaskData();
-  Plugin_id.resize(PLUGIN_MAX);
-  Task_id_to_Plugin_id.resize(TASKS_MAX);
 
   checkRAM(F("setup"));
   #if defined(ESP32)
@@ -250,12 +254,16 @@ void setup()
       log = F("INIT : Rebooted from deepsleep #");
       lastBootCause=BOOT_CAUSE_DEEP_SLEEP;
     }
-    else
+    else {
+      restoreLastKnownUnixTime();
       log = F("INIT : Warm boot #");
+    }
 
     log += RTC.bootCounter;
     log += F(" Last Task: ");
     log += decodeSchedulerId(lastMixedSchedulerId_beforereboot);
+    log += F(" Last systime: ");
+    log += RTC.lastSysTime;
   }
   //cold boot (RTC memory empty)
   else
@@ -278,6 +286,7 @@ void setup()
   fileSystemCheck();
   progMemMD5check();
   LoadSettings();
+
   Settings.UseRTOSMultitasking = false; // For now, disable it, we experience heap corruption.
   if (RTC.bootFailedCount > 10 && RTC.bootCounter > 10) {
     byte toDisable = RTC.bootFailedCount - 10;
@@ -288,6 +297,13 @@ void setup()
     if (toDisable != 0) {
       toDisable = disableNotification(toDisable);
     }
+  }
+  if (!selectValidWiFiSettings()) {
+    wifiSetup = true;
+    RTC.lastWiFiChannel = 0; // Must scan all channels
+    // Wait until scan has finished to make sure as many as possible are found
+    // We're still in the setup phase, so nothing else is taking resources of the ESP.
+    WifiScan(false); 
   }
 
 //  setWifiMode(WIFI_STA);
@@ -331,18 +347,12 @@ void setup()
 
   timermqtt_interval = 250; // Interval for checking MQTT
   timerAwakeFromDeepSleep = millis();
-  if (Settings.UseRules && isDeepSleepEnabled())
-  {
-    String event = F("System#NoSleep=");
-    event += Settings.deepSleep;
-    rulesProcessing(event);
-  }
-
-  PluginInit();
   CPluginInit();
   NPluginInit();
+  PluginInit();
   log = F("INFO : Plugins: ");
   log += deviceCount + 1;
+  log += ' ';
   log += getPluginDescriptionString();
   log += " (";
   log += getSystemLibraryString();
@@ -353,23 +363,19 @@ void setup()
     addLog(LOG_LEVEL_ERROR, F("Programming error! - Increase PLUGIN_MAX"));
   }
 
+  if (Settings.UseRules && isDeepSleepEnabled())
+  {
+    String event = F("System#NoSleep=");
+    event += Settings.deepSleep_wakeTime;
+    rulesProcessing(event); // TD-er: Process events in the setup() now.
+  }
+
   if (Settings.UseRules)
   {
     String event = F("System#Wake");
-    rulesProcessing(event);
+    rulesProcessing(event); // TD-er: Process events in the setup() now.
   }
 
-  if (!selectValidWiFiSettings()) {
-    wifiSetup = true;
-  }
-/*
-  // FIXME TD-er:
-  // Async scanning for wifi doesn't work yet like it should.
-  // So no selection of strongest network yet.
-  if (selectValidWiFiSettings()) {
-    WifiScanAsync();
-  }
-*/
   WiFiConnectRelaxed();
 
   #ifdef FEATURE_REPORTING
@@ -396,7 +402,7 @@ void setup()
   if (Settings.UseRules)
   {
     String event = F("System#Boot");
-    rulesProcessing(event);
+    rulesProcessing(event); // TD-er: Process events in the setup() now.
   }
 
   writeDefaultCSS();
@@ -478,7 +484,9 @@ void updateLoopStats() {
     return;
   }
   const long usecSince = usecPassedSince(lastLoopStart);
+  #ifdef USES_TIMING_STATS
   miscStats[LOOP_STATS].add(usecSince);
+  #endif
 
   loop_usec_duration_total += usecSince;
   lastLoopStart = micros();
@@ -512,12 +520,9 @@ void updateLoopStats_30sec(byte loglevel) {
     log += loopCounterMax;
     log += F(" loopCounterLast: ");
     log += loopCounterLast;
-    log += F(" countFindPluginId: ");
-    log += countFindPluginId;
     addLog(loglevel, log);
   }
 #endif
-  countFindPluginId = 0;
   loop_usec_duration_total = 0;
   loopCounter_full = 1;
 }
@@ -554,12 +559,12 @@ void loop()
      addLog(LOG_LEVEL_INFO, F("firstLoopConnectionsEstablished"));
      firstLoop = false;
      timerAwakeFromDeepSleep = millis(); // Allow to run for "awake" number of seconds, now we have wifi.
-     // schedule_all_task_device_timers(); Disabled for now, since we are now using queues for controllers.
+     // schedule_all_task_device_timers(); // Disabled for now, since we are now using queues for controllers.
      if (Settings.UseRules && isDeepSleepEnabled())
      {
         String event = F("System#NoSleep=");
-        event += Settings.deepSleep;
-        rulesProcessing(event);
+        event += Settings.deepSleep_wakeTime;
+        eventQueue.add(event);
      }
 
 
@@ -598,7 +603,7 @@ void loop()
   backgroundtasks();
 
   if (readyForSleep()){
-    deepSleep(Settings.Delay);
+    prepare_deepSleep(Settings.Delay);
     //deepsleep will never return, its a special kind of reboot
   }
 }
@@ -606,12 +611,12 @@ void loop()
 void flushAndDisconnectAllClients() {
   if (anyControllerEnabled()) {
 #ifdef USES_MQTT
-    bool mqttControllerEnabled = firstEnabledMQTTController() >= 0;
+    bool mqttControllerEnabled = validControllerIndex(firstEnabledMQTT_ControllerIndex());
 #endif //USES_MQTT
     unsigned long timer = millis() + 1000;
     while (!timeOutReached(timer)) {
       // call to all controllers (delay queue) to flush all data.
-      CPluginCall(CPLUGIN_FLUSH, 0);
+      CPluginCall(CPlugin::Function::CPLUGIN_FLUSH, 0);
 #ifdef USES_MQTT      
       if (mqttControllerEnabled && MQTTclient.connected()) {
         MQTTclient.loop();
@@ -646,8 +651,11 @@ void updateMQTTclient_connected() {
       schedule_all_tasks_using_MQTT_controller();
     }
     if (Settings.UseRules) {
-      String event = MQTTclient_connected ? F("MQTT#Connected") : F("MQTT#Disconnected");
-      rulesProcessing(event);
+      if (MQTTclient_connected) {
+        eventQueue.add(F("MQTT#Connected"));
+      } else {
+        eventQueue.add(F("MQTT#Disconnected"));
+      }
     }
   }
   if (!MQTTclient_connected) {
@@ -668,8 +676,8 @@ void runPeriodicalMQTT() {
     return;
   }
   //dont do this in backgroundtasks(), otherwise causes crashes. (https://github.com/letscontrolit/ESPEasy/issues/683)
-  int enabledMqttController = firstEnabledMQTTController();
-  if (enabledMqttController >= 0) {
+  controllerIndex_t enabledMqttController = firstEnabledMQTT_ControllerIndex();
+  if (validControllerIndex(enabledMqttController)) {
     if (!MQTTclient.loop()) {
       updateMQTTclient_connected();
       if (MQTTCheck(enabledMqttController)) {
@@ -684,30 +692,34 @@ void runPeriodicalMQTT() {
   }
 }
 
-int firstEnabledMQTTController() {
-  for (byte i = 0; i < CONTROLLER_MAX; ++i) {
-    byte ProtocolIndex = getProtocolIndex(Settings.Protocol[i]);
-    if (Protocol[ProtocolIndex].usesMQTT && Settings.ControllerEnabled[i]) {
-      return i;
+controllerIndex_t firstEnabledMQTT_ControllerIndex() {
+  for (controllerIndex_t i = 0; i < CONTROLLER_MAX; ++i) {
+    protocolIndex_t ProtocolIndex = getProtocolIndex_from_ControllerIndex(i);
+    if (validProtocolIndex(ProtocolIndex)) {
+      if (Protocol[ProtocolIndex].usesMQTT && Settings.ControllerEnabled[i]) {
+        return i;
+      }
     }
   }
-  return -1;
+  return INVALID_CONTROLLER_INDEX;
 }
 
 #endif //USES_MQTT
 
 #ifdef USES_BLYNK
 // Blynk_get prototype
-//boolean Blynk_get(const String& command, byte controllerIndex,float *data = NULL );
+//boolean Blynk_get(const String& command, controllerIndex_t controllerIndex,float *data = NULL );
 
-int firstEnabledBlynkController() {
-  for (byte i = 0; i < CONTROLLER_MAX; ++i) {
-    byte ProtocolIndex = getProtocolIndex(Settings.Protocol[i]);
-    if (Protocol[ProtocolIndex].Number == 12 && Settings.ControllerEnabled[i]) {
-      return i;
+controllerIndex_t firstEnabledBlynk_ControllerIndex() {
+  for (controllerIndex_t i = 0; i < CONTROLLER_MAX; ++i) {
+    protocolIndex_t ProtocolIndex = getProtocolIndex_from_ControllerIndex(i);
+    if (validProtocolIndex(ProtocolIndex)) {
+      if (Protocol[ProtocolIndex].Number == 12 && Settings.ControllerEnabled[i]) {
+        return i;
+      }
     }
   }
-  return -1;
+  return INVALID_CONTROLLER_INDEX;
 }
 #endif
 
@@ -717,10 +729,17 @@ int firstEnabledBlynkController() {
 \*********************************************************************************************/
 
 void run50TimesPerSecond() {
-  START_TIMER;
   String dummy;
-  PluginCall(PLUGIN_FIFTY_PER_SECOND, 0, dummy);
-  STOP_TIMER(PLUGIN_CALL_50PS);
+  {
+    START_TIMER;
+    PluginCall(PLUGIN_FIFTY_PER_SECOND, 0, dummy);
+    STOP_TIMER(PLUGIN_CALL_50PS);
+  }
+  {
+    START_TIMER;
+    CPluginCall(CPlugin::Function::CPLUGIN_FIFTY_PER_SECOND, 0, dummy);
+    STOP_TIMER(CPLUGIN_CALL_50PS);
+  }
 }
 
 /*********************************************************************************************\
@@ -739,11 +758,13 @@ void run10TimesPerSecond() {
     PluginCall(PLUGIN_MONITOR, 0, dummy);
     STOP_TIMER(PLUGIN_CALL_10PSU);
   }
-  if (Settings.UseRules && eventBuffer.length() > 0)
   {
-    rulesProcessing(eventBuffer);
-    eventBuffer = "";
+    START_TIMER;
+    CPluginCall(CPlugin::Function::CPLUGIN_TEN_PER_SECOND, 0, dummy);
+    STOP_TIMER(CPLUGIN_CALL_10PS);
   }
+  processNextEvent();
+  
   #ifdef USES_C015
   if (WiFiConnected())
       Blynk_Run_c015();
@@ -864,11 +885,14 @@ void runEach30Seconds()
   refreshNodeList();
 
   // sending $stats to homie controller
-  CPluginCall(CPLUGIN_INTERVAL, 0);
+  CPluginCall(CPlugin::Function::CPLUGIN_INTERVAL, 0);
 
   #if defined(ESP8266)
+  #ifdef USES_SSDP
   if (Settings.UseSSDP)
     SSDP_update();
+
+  #endif // USES_SSDP
   #endif
 #if FEATURE_ADC_VCC
   if (!wifiConnectInProgress) {
@@ -883,71 +907,6 @@ void runEach30Seconds()
 }
 
 
-/*********************************************************************************************\
- * send all sensordata
-\*********************************************************************************************/
-// void SensorSendAll()
-// {
-//   for (byte x = 0; x < TASKS_MAX; x++)
-//   {
-//     SensorSendTask(x);
-//   }
-// }
-
-
-/*********************************************************************************************\
- * send specific sensor task data
-\*********************************************************************************************/
-void SensorSendTask(byte TaskIndex)
-{
-  checkRAM(F("SensorSendTask"));
-  if (Settings.TaskDeviceEnabled[TaskIndex])
-  {
-    byte varIndex = TaskIndex * VARS_PER_TASK;
-
-    bool success = false;
-    byte DeviceIndex = getDeviceIndex(Settings.TaskDeviceNumber[TaskIndex]);
-    LoadTaskSettings(TaskIndex);
-
-    struct EventStruct TempEvent;
-    TempEvent.TaskIndex = TaskIndex;
-    TempEvent.BaseVarIndex = varIndex;
-    // TempEvent.idx = Settings.TaskDeviceID[TaskIndex]; todo check
-    TempEvent.sensorType = Device[DeviceIndex].VType;
-
-    float preValue[VARS_PER_TASK]; // store values before change, in case we need it in the formula
-    for (byte varNr = 0; varNr < VARS_PER_TASK; varNr++)
-      preValue[varNr] = UserVar[varIndex + varNr];
-
-    if(Settings.TaskDeviceDataFeed[TaskIndex] == 0)  // only read local connected sensorsfeeds
-    {
-      String dummy;
-      success = PluginCall(PLUGIN_READ, &TempEvent, dummy);
-    }
-    else
-      success = true;
-
-    if (success)
-    {
-      START_TIMER;
-      for (byte varNr = 0; varNr < VARS_PER_TASK; varNr++)
-      {
-        if (ExtraTaskSettings.TaskDeviceFormula[varNr][0] != 0)
-        {
-          String formula = ExtraTaskSettings.TaskDeviceFormula[varNr];
-          formula.replace(F("%pvalue%"), String(preValue[varNr]));
-          formula.replace(F("%value%"), String(UserVar[varIndex + varNr]));
-          float result = 0;
-          byte error = Calculate(formula.c_str(), &result);
-          if (error == 0)
-            UserVar[varIndex + varNr] = result;
-        }
-      }
-      STOP_TIMER(COMPUTE_FORMULA_STATS);
-      sendData(&TempEvent);
-    }
-  }
-}
 
 
 /*********************************************************************************************\

@@ -52,6 +52,7 @@
 #define DEFAULT_IP_BLOCK_LEVEL               1                       // 0: ALL_ALLOWED  1: LOCAL_SUBNET_ALLOWED  2:
 // ONLY_IP_RANGE_ALLOWED
 #define DEFAULT_ADMIN_USERNAME               "admin"
+#define DEFAULT_ADMIN_PASS                   ""
 
 #define DEFAULT_WIFI_CONNECTION_TIMEOUT      10000 // minimum timeout in ms for WiFi to be connected.
 #define DEFAULT_WIFI_FORCE_BG_MODE           false // when set, only allow to connect in 802.11B or G mode (not N)
@@ -60,16 +61,25 @@
 #define DEFAULT_WIFI_NONE_SLEEP              false // When set, the wifi will be set to no longer sleep (more power
 // used and need reboot to reset mode)
 #define DEFAULT_GRATUITOUS_ARP               false // When set, the node will send periodical gratuitous ARP
-// packets to announce itself.
+                                                   // packets to announce itself.
+#define DEFAULT_TOLERANT_LAST_ARG_PARSE      false // When set, the last argument of some commands will be parsed to the end of the line
+                                                   // See: https://github.com/letscontrolit/ESPEasy/issues/2724
+#define DEFAULT_SEND_TO_HTTP_ACK             false // Wait for ack with SendToHttp command.
 
 // --- Default Controller ------------------------------------------------------------------------------
 #define DEFAULT_CONTROLLER   false                                          // true or false enabled or disabled, set 1st controller
                                                                             // defaults
+#define DEFAULT_CONTROLLER_ENABLED true                                     // Enable default controller by default
+#define DEFAULT_CONTROLLER_USER    ""                                       // Default controller user
+#define DEFAULT_CONTROLLER_PASS    ""                                       // Default controller Password
 
 // using a default template, you also need to set a DEFAULT PROTOCOL to a suitable MQTT protocol !
 #define DEFAULT_PUB         "sensors/espeasy/%sysname%/%tskname%/%valname%" // Enter your pub
 #define DEFAULT_SUB         "sensors/espeasy/%sysname%/#"                   // Enter your sub
 #define DEFAULT_SERVER      "192.168.0.8"                                   // Enter your Server IP address
+#define DEFAULT_SERVER_HOST ""                                              // Server hostname
+#define DEFAULT_SERVER_USEDNS false                                         // true: Use hostname.  false: use IP
+
 #define DEFAULT_PORT        8080                                            // Enter your Server port value
 
 #define DEFAULT_PROTOCOL    0                                               // Protocol used for controller communications
@@ -87,7 +97,7 @@
 #define DEFAULT_PIN_I2C_SDA                     4
 #define DEFAULT_PIN_I2C_SCL                     5
 
-#define DEFAULT_PIN_STATUS_LED                  -1
+#define DEFAULT_PIN_STATUS_LED                  (-1)
 #define DEFAULT_PIN_STATUS_LED_INVERSED         true
 
 
@@ -117,8 +127,14 @@
 #define DEFAULT_SERIAL_BAUD                     115200            // Serial Port Baud Rate
 #define DEFAULT_SYSLOG_FACILITY                 0                 // kern
 
+#define DEFAULT_SYNC_UDP_PORT                   0                 // Used for ESPEasy p2p. (IANA registered port: 8266)
+
 
 #define BUILD_NO_DEBUG
+
+
+#define USES_SSDP
+
 
 // #define USE_SETTINGS_ARCHIVE
 
@@ -246,10 +262,11 @@
 
 // Special plugins needing IR library
 // #define USES_P016   // IR
+// #define P016_SEND_IR_TO_CONTROLLER false //IF true then the JSON replay solution is transmited back to the condroller.
 // #define USES_P035   // IRTX
 // #define P016_P035_Extended_AC // The following define is needed for extended decoding of A/C Messages and or using standardised 
                                  //common arguments for controlling all deeply supported A/C units
-//#define P016_P035_USE_RAW_RAW2 //Use the RAW and RAW2 encodings, disabling it saves 3.7Kb
+// #define P016_P035_USE_RAW_RAW2 //Use the RAW and RAW2 encodings, disabling it saves 3.7Kb
 // #define USES_P088   // Heatpump IR
 
 

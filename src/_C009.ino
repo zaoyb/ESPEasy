@@ -31,13 +31,13 @@
 #define CPLUGIN_NAME_009       "FHEM HTTP"
 #include <ArduinoJson.h>
 
-bool CPlugin_009(byte function, struct EventStruct *event, String& string)
+bool CPlugin_009(CPlugin::Function function, struct EventStruct *event, String& string)
 {
   bool success = false;
 
   switch (function)
   {
-    case CPLUGIN_PROTOCOL_ADD:
+    case CPlugin::Function::CPLUGIN_PROTOCOL_ADD:
       {
         Protocol[++protocolCount].Number = CPLUGIN_ID_009;
         Protocol[protocolCount].usesMQTT = false;
@@ -49,13 +49,13 @@ bool CPlugin_009(byte function, struct EventStruct *event, String& string)
         break;
       }
 
-    case CPLUGIN_GET_DEVICENAME:
+    case CPlugin::Function::CPLUGIN_GET_DEVICENAME:
       {
         string = F(CPLUGIN_NAME_009);
         break;
       }
 
-    case CPLUGIN_PROTOCOL_SEND:
+    case CPlugin::Function::CPLUGIN_PROTOCOL_SEND:
       {
         byte valueCount = getValueCountFromSensorType(event->sensorType);
         C009_queue_element element(event);
@@ -72,12 +72,15 @@ bool CPlugin_009(byte function, struct EventStruct *event, String& string)
         break;
       }
 
-    case CPLUGIN_FLUSH:
+    case CPlugin::Function::CPLUGIN_FLUSH:
       {
         process_c009_delay_queue();
         delay(0);
         break;
       }
+
+    default:
+      break;
 
   }
   return success;
@@ -86,7 +89,11 @@ bool CPlugin_009(byte function, struct EventStruct *event, String& string)
 /*********************************************************************************************\
  * FHEM HTTP request
 \*********************************************************************************************/
+
+// Uncrustify may change this into multi line, which will result in failed builds
+// *INDENT-OFF*
 bool do_process_c009_delay_queue(int controller_number, const C009_queue_element& element, ControllerSettingsStruct& ControllerSettings);
+// *INDENT-ON*
 
 bool do_process_c009_delay_queue(int controller_number, const C009_queue_element& element, ControllerSettingsStruct& ControllerSettings) {
   WiFiClient client;
@@ -111,7 +118,7 @@ bool do_process_c009_delay_queue(int controller_number, const C009_queue_element
     ESP[F("build_notes")] = String(F(BUILD_NOTES));
     ESP[F("build_git")] = String(F(BUILD_GIT));
     ESP[F("node_type_id")] = NODE_TYPE_ID;
-    ESP[F("sleep")] = Settings.deepSleep;
+    ESP[F("sleep")] = Settings.deepSleep_wakeTime;
 
     // embed IP, important if there is NAT/PAT
     // char ipStr[20];

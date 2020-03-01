@@ -1,5 +1,6 @@
 #include "src/Globals/Nodes.h"
 #include "src/Globals/Device.h"
+#include "src/Globals/Plugins.h"
 
 // ********************************************************************************
 // Web Interface custom page handler
@@ -38,9 +39,9 @@ boolean handle_custom(String path) {
       if (it != Nodes.end()) {
         TXBuffer.startStream();
         sendHeadandTail(F("TmplDsh"), _HEAD);
-        TXBuffer += F("<meta http-equiv=\"refresh\" content=\"0; URL=http://");
-        TXBuffer += it->second.ip.toString();
-        TXBuffer += F("/dashboard.esp\">");
+        addHtml(F("<meta http-equiv=\"refresh\" content=\"0; URL=http://"));
+        addHtml(it->second.ip.toString());
+        addHtml(F("/dashboard.esp\">"));
         sendHeadandTail(F("TmplDsh"), _TAIL);
         TXBuffer.endStream();
         return true;
@@ -95,30 +96,22 @@ boolean handle_custom(String path) {
     }
 
     html_add_button_prefix();
-    TXBuffer += path;
-    TXBuffer += F("?btnunit=");
-    TXBuffer += prev;
-    TXBuffer += F("'>&lt;</a>");
+    addHtml(path);
+    addHtml(F("?btnunit="));
+    addHtml(String(prev));
+    addHtml(F("'>&lt;</a>"));
     html_add_button_prefix();
-    TXBuffer += path;
-    TXBuffer += F("?btnunit=");
-    TXBuffer += next;
-    TXBuffer += F("'>&gt;</a>");
+    addHtml(path);
+    addHtml(F("?btnunit="));
+    addHtml(String(next));
+    addHtml(F("'>&gt;</a>"));
   }
 
   // handle commands from a custom page
   String webrequest = WebServer.arg(F("cmd"));
 
   if (webrequest.length() > 0) {
-    struct EventStruct TempEvent;
-    parseCommandString(&TempEvent, webrequest);
-    TempEvent.Source = VALUE_SOURCE_HTTP;
-
-    if (PluginCall(PLUGIN_WRITE, &TempEvent, webrequest)) {}
-    else if (remoteConfig(&TempEvent, webrequest)) {}
-    else if (webrequest.startsWith(F("event"))) {
-      ExecuteCommand(VALUE_SOURCE_HTTP, webrequest.c_str());
-    }
+    ExecuteCommand_all_config_eventOnly(VALUE_SOURCE_HTTP, webrequest.c_str());
 
     // handle some update processes first, before returning page update...
     String dummy;
@@ -135,7 +128,7 @@ boolean handle_custom(String path) {
       page += ((char)dataFile.read());
     }
 
-    TXBuffer += parseTemplate(page, 0);
+    addHtml(parseTemplate(page));
     dataFile.close();
   }
   else // if the requestef file does not exist, create a default action in case the page is named "dashboard*"
@@ -143,31 +136,34 @@ boolean handle_custom(String path) {
     if (dashboardPage)
     {
       // if the custom page does not exist, create a basic task value overview page in case of dashboard request...
-      TXBuffer += F(
-        "<meta name='viewport' content='width=width=device-width, initial-scale=1'><STYLE>* {font-family:sans-serif; font-size:16pt;}.button {margin:4px; padding:4px 16px; background-color:#07D; color:#FFF; text-decoration:none; border-radius:4px}</STYLE>");
+      addHtml(F(
+                "<meta name='viewport' content='width=width=device-width, initial-scale=1'><STYLE>* {font-family:sans-serif; font-size:16pt;}.button {margin:4px; padding:4px 16px; background-color:#07D; color:#FFF; text-decoration:none; border-radius:4px}</STYLE>"));
       html_table_class_normal();
 
-      for (byte x = 0; x < TASKS_MAX; x++)
+      for (taskIndex_t x = 0; x < TASKS_MAX; x++)
       {
-        if (Settings.TaskDeviceNumber[x] != 0)
+        if (validPluginID_fullcheck(Settings.TaskDeviceNumber[x]))
         {
-          LoadTaskSettings(x);
-          byte DeviceIndex = getDeviceIndex(Settings.TaskDeviceNumber[x]);
-          html_TR_TD();
-          TXBuffer += ExtraTaskSettings.TaskDeviceName;
+          const deviceIndex_t DeviceIndex = getDeviceIndex_from_TaskIndex(x);
 
-          for (byte varNr = 0; varNr < VARS_PER_TASK; varNr++)
-          {
-            if ((Settings.TaskDeviceNumber[x] != 0) && (varNr < Device[DeviceIndex].ValueCount) &&
-                (ExtraTaskSettings.TaskDeviceValueNames[varNr][0] != 0))
+          if (validDeviceIndex(DeviceIndex)) {
+            LoadTaskSettings(x);
+            html_TR_TD();
+            addHtml(ExtraTaskSettings.TaskDeviceName);
+
+            for (byte varNr = 0; varNr < VARS_PER_TASK; varNr++)
             {
-              if (varNr > 0) {
-                html_TR_TD();
+              if ((varNr < Device[DeviceIndex].ValueCount) &&
+                  (ExtraTaskSettings.TaskDeviceValueNames[varNr][0] != 0))
+              {
+                if (varNr > 0) {
+                  html_TR_TD();
+                }
+                html_TD();
+                addHtml(ExtraTaskSettings.TaskDeviceValueNames[varNr]);
+                html_TD();
+                addHtml(String(UserVar[x * VARS_PER_TASK + varNr], ExtraTaskSettings.TaskDeviceValueDecimals[varNr]));
               }
-              html_TD();
-              TXBuffer += ExtraTaskSettings.TaskDeviceValueNames[varNr];
-              html_TD();
-              TXBuffer += String(UserVar[x * VARS_PER_TASK + varNr], ExtraTaskSettings.TaskDeviceValueDecimals[varNr]);
             }
           }
         }

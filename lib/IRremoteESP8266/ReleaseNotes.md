@@ -1,5 +1,88 @@
 # Release Notes
 
+## _v2.7.3 (20200130)_
+
+**[Features]**
+- Allow protocols to be enabled or disabled with compiler flags. (#1013, #1012)
+- Panasonic AC: Add Ion Filter support for DKE models. (#1025, #1024)
+- Add support for sending Sony at 38Khz (#1029, #1018, #1019)
+- auto_analyse_raw_data.py: Handle analysing messages with no headers. (#1017)
+
+**[Misc]**
+- Fix Coolix unit test errors when using Apple c++ compiler. (#1030, #1028)
+- Fix Apple clang c++ compiler error in unit tests. (#1027, #1026)
+- Improve/fix scraping of supported devices (#1022)
+- Panasonic PKR series A/C uses DKE protocol. (#1020, #1021)
+- Update NEC supported devices. (#1018)
+- Add note to avoid GPIO16 on the ESP8266 for receiving. (#1016, #1015)
+
+
+## _v2.7.2 (20200106)_
+
+**[Bug Fixes]**
+- Common AC api: Better handle protocols with power toggles. (#1002)
+
+**[Features]**
+- Experimental detailed support for LG a/c. (#1008 #1009)
+
+**[Misc]**
+- Add remote codes for Aloka LED lamp. (#1005)
+- Improve Supported Devices scraping. (#1006)
+
+
+## _v2.7.1 (20191125)_
+
+**[Bug Fixes]**
+- Hitachi424Ac: Fix Incorrect Power Byte Values (#987)
+- Coolix: Fix setPower(false) issue. (#990)
+
+**[Features]**
+- Use `char*` instead of `String` for common text. Saves ~1-3k. (#992, #989)
+- Hitachi424Ac: Add Vertical Swing ability (#986)
+
+**[Misc]**
+- IRMQTTServer: Update HA example/discovery message. (#995)
+- Move newly added common text to a better location. (#993)
+
+
+## _v2.7.0 (20191030)_
+
+**[Bug Fixes]**
+- auto_analyse: Fix > 64 bit send code generation. (#976)
+- auto_analyse: Fix missing arguments in generated code for send64+ (#972)
+- IRsendProntoDemo: Fix compile issue on ESP32 platform. (#938)
+- IRMQTTServer: Fix compile error when `MQTT_ENABLE` is false. (#933)
+
+**[Features]**
+- Add Hitachi 424 bit A/C support. (#975, #980, #981)
+- Experimental detailed support for `DAIKIN152` (#971)
+- Mitsubishi 112bit A/C support (#947, #968)
+- gc_decode: Adding Support for Decoding codes in raw code format (#963)
+- Refactor to use common routines/macros to handle bit manipulation. (#934)
+- Use centralised common strings. Saves ~1.5k of program space. (#946)
+- Add Internationalisation (i18n) / Locale support. (#946, #955, #966)
+  - `de-CH`: Swiss German. (#949, #954)
+  - `de-DE`: German. (#946, #950, #952)
+  - `en-AU`: English/Australia (Default locale) (#946)
+  - `en-IE`: English/Ireland (#946)
+  - `en-UK`: English/United Kingdom (#946)
+  - `en-US`: English/United States (#946)
+  - `es-ES`: Spanish. (#953)
+  - `fr-FR`: French. (#962)
+- Port CI pipeline to PlatformIO (#936)
+
+**[Misc]**
+- Add DAIKIN128 & DAIKIN152 to `decodeToState()` (#982)
+- auto_analyse: Produce better code when leader is detected. (#977)
+- Coolix A/C improvements (#944)
+- A/C setRaw/getRaw/stateReset() cleanup. (#967)
+- Add documentation on how to use & support the i18n aspects of the library.
+- Make travis checks faster. (#957)
+- Translate README.md to french (#959)
+- Fixed Coolix kCoolixDefaultState (#941)
+- Improve generation of list of pio projects. (#940)
+
+
 ## _v2.6.6 (20190923)_
 
 **[Bug Fixes]**

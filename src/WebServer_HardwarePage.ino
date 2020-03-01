@@ -1,3 +1,4 @@
+#ifdef WEBSERVER_HARDWARE
 
 // ********************************************************************************
 // Web Interface hardware page
@@ -40,7 +41,7 @@ void handle_hardware() {
     addHtmlError(SaveSettings());
   }
 
-  TXBuffer += F("<form  method='post'>");
+  addHtml(F("<form  method='post'>"));
   html_table_class_normal();
   addFormHeader(F("Hardware Settings"), F("ESPEasy#Hardware_page"));
 
@@ -103,3 +104,5 @@ void handle_hardware() {
   sendHeadandTail_stdtemplate(_TAIL);
   TXBuffer.endStream();
 }
+
+#endif // ifdef WEBSERVER_HARDWARE

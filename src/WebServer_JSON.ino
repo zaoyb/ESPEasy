@@ -1,13 +1,16 @@
 #include "src/Globals/Nodes.h"
 #include "src/Globals/Device.h"
+#include "src/Globals/Plugins.h"
+#include "StringProviderTypes.h"
+
 
 // ********************************************************************************
 // Web Interface JSON page (no password!)
 // ********************************************************************************
 void handle_json()
 {
-  const int  taskNr           = getFormItemInt(F("tasknr"), -1);
-  const bool showSpecificTask = taskNr > 0;
+  const taskIndex_t taskNr    = getFormItemInt(F("tasknr"), INVALID_TASK_INDEX);
+  const bool showSpecificTask = validTaskIndex(taskNr);
   bool showSystem             = true;
   bool showWifi               = true;
   bool showDataAcquisition    = true;
@@ -31,14 +34,14 @@ void handle_json()
 
   if (!showSpecificTask)
   {
-    TXBuffer += '{';
+    addHtml("{");
 
     if (showSystem) {
-      TXBuffer += F("\"System\":{\n");
+      addHtml(F("\"System\":{\n"));
       stream_next_json_object_value(LabelType::BUILD_DESC);
       stream_next_json_object_value(LabelType::GIT_BUILD);
       stream_next_json_object_value(LabelType::SYSTEM_LIBRARIES);
-      stream_next_json_object_value(LabelType::PLUGINS);
+      stream_next_json_object_value(LabelType::PLUGIN_COUNT);
       stream_next_json_object_value(LabelType::PLUGIN_DESCRIPTION);
       stream_next_json_object_value(LabelType::LOCAL_TIME);
       stream_next_json_object_value(LabelType::UNIT_NR);
@@ -59,14 +62,17 @@ void handle_json()
       stream_next_json_object_value(LabelType::HEAP_FRAGMENTATION);
       #endif // ifdef CORE_POST_2_5_0
       stream_last_json_object_value(LabelType::FREE_MEM);
-      TXBuffer += ",\n";
+      addHtml(F(",\n"));
     }
 
     if (showWifi) {
-      TXBuffer += F("\"WiFi\":{\n");
+      addHtml(F("\"WiFi\":{\n"));
       #if defined(ESP8266)
       stream_next_json_object_value(LabelType::HOST_NAME);
       #endif // if defined(ESP8266)
+      #ifdef FEATURE_MDNS
+      stream_next_json_object_value(LabelType::M_DNS);
+      #endif // ifdef FEATURE_MDNS
       stream_next_json_object_value(LabelType::IP_CONFIG);
       stream_next_json_object_value(LabelType::IP_ADDRESS);
       stream_next_json_object_value(LabelType::IP_SUBNET);
@@ -91,7 +97,7 @@ void handle_json()
 #endif // ifdef SUPPORT_ARP
       stream_next_json_object_value(LabelType::CONNECTION_FAIL_THRESH);
       stream_last_json_object_value(LabelType::WIFI_RSSI);
-      TXBuffer += ",\n";
+      addHtml(F(",\n"));
     }
 
     if (showNodes) {
@@ -102,13 +108,13 @@ void handle_json()
         if (it->second.ip[0] != 0)
         {
           if (comma_between) {
-            TXBuffer += ',';
+            addHtml(",");
           } else {
             comma_between = true;
-            TXBuffer     += F("\"nodes\":[\n"); // open json array if >0 nodes
+            addHtml(F("\"nodes\":[\n")); // open json array if >0 nodes
           }
 
-          TXBuffer += '{';
+          addHtml("{");
           stream_next_json_object_value(F("nr"), String(it->first));
           stream_next_json_object_value(F("name"),
                                         (it->first != Settings.Unit) ? it->second.nodeName : Settings.Name);
@@ -130,59 +136,70 @@ void handle_json()
       }   // for loop
 
       if (comma_between) {
-        TXBuffer += F("],\n"); // close array if >0 nodes
+        addHtml(F("],\n")); // close array if >0 nodes
       }
     }
   }
 
-  byte firstTaskIndex = 0;
-  byte lastTaskIndex  = TASKS_MAX - 1;
+  taskIndex_t firstTaskIndex = 0;
+  taskIndex_t lastTaskIndex  = TASKS_MAX - 1;
 
   if (showSpecificTask)
   {
     firstTaskIndex = taskNr - 1;
     lastTaskIndex  = taskNr - 1;
   }
-  byte lastActiveTaskIndex = 0;
+  taskIndex_t lastActiveTaskIndex = 0;
 
-  for (byte TaskIndex = firstTaskIndex; TaskIndex <= lastTaskIndex; TaskIndex++) {
-    if (Settings.TaskDeviceNumber[TaskIndex]) {
+  for (taskIndex_t TaskIndex = firstTaskIndex; TaskIndex <= lastTaskIndex; TaskIndex++) {
+    if (validPluginID_fullcheck(Settings.TaskDeviceNumber[TaskIndex])) {
       lastActiveTaskIndex = TaskIndex;
     }
   }
 
-  if (!showSpecificTask) { TXBuffer += F("\"Sensors\":[\n"); }
-  unsigned long ttl_json = 60; // The shortest interval per enabled task (with output values) in seconds
+  if (!showSpecificTask) {
+    addHtml(F("\"Sensors\":[\n"));
+  }
 
-  for (byte TaskIndex = firstTaskIndex; TaskIndex <= lastActiveTaskIndex; TaskIndex++)
+  // Keep track of the lowest reported TTL and use that as refresh interval.
+  unsigned long lowest_ttl_json = 60;
+
+  for (taskIndex_t TaskIndex = firstTaskIndex; TaskIndex <= lastActiveTaskIndex && validTaskIndex(TaskIndex); TaskIndex++)
   {
-    if (Settings.TaskDeviceNumber[TaskIndex])
+    const deviceIndex_t DeviceIndex = getDeviceIndex_from_TaskIndex(TaskIndex);
+
+    if (validDeviceIndex(DeviceIndex))
     {
-      byte DeviceIndex                 = getDeviceIndex(Settings.TaskDeviceNumber[TaskIndex]);
       const unsigned long taskInterval = Settings.TaskDeviceTimer[TaskIndex];
       LoadTaskSettings(TaskIndex);
-      TXBuffer += F("{\n");
+      addHtml(F("{\n"));
+
+      unsigned long ttl_json = 60; // Default value
 
       // For simplicity, do the optional values first.
       if (Device[DeviceIndex].ValueCount != 0) {
-        if ((ttl_json > taskInterval) && (taskInterval > 0) && Settings.TaskDeviceEnabled[TaskIndex]) {
+        if ((taskInterval > 0) && Settings.TaskDeviceEnabled[TaskIndex]) {
           ttl_json = taskInterval;
+
+          if (ttl_json < lowest_ttl_json) {
+            lowest_ttl_json = ttl_json;
+          }
         }
-        TXBuffer += F("\"TaskValues\": [\n");
+        addHtml(F("\"TaskValues\": [\n"));
 
         for (byte x = 0; x < Device[DeviceIndex].ValueCount; x++)
         {
-          TXBuffer += '{';
+          addHtml("{");
           stream_next_json_object_value(F("ValueNumber"), String(x + 1));
           stream_next_json_object_value(F("Name"),        String(ExtraTaskSettings.TaskDeviceValueNames[x]));
           stream_next_json_object_value(F("NrDecimals"),  String(ExtraTaskSettings.TaskDeviceValueDecimals[x]));
           stream_last_json_object_value(F("Value"), formatUserVarNoCheck(TaskIndex, x));
 
           if (x < (Device[DeviceIndex].ValueCount - 1)) {
-            TXBuffer += ",\n";
+            addHtml(F(",\n"));
           }
         }
-        TXBuffer += F("],\n");
+        addHtml(F("],\n"));
       }
 
       if (showSpecificTask) {
@@ -190,20 +207,20 @@ void handle_json()
       }
 
       if (showDataAcquisition) {
-        TXBuffer += F("\"DataAcquisition\": [\n");
+        addHtml(F("\"DataAcquisition\": [\n"));
 
-        for (byte x = 0; x < CONTROLLER_MAX; x++)
+        for (controllerIndex_t x = 0; x < CONTROLLER_MAX; x++)
         {
-          TXBuffer += '{';
+          addHtml("{");
           stream_next_json_object_value(F("Controller"), String(x + 1));
           stream_next_json_object_value(F("IDX"),        String(Settings.TaskDeviceID[x][TaskIndex]));
           stream_last_json_object_value(F("Enabled"), jsonBool(Settings.TaskDeviceSendData[x][TaskIndex]));
 
           if (x < (CONTROLLER_MAX - 1)) {
-            TXBuffer += ",\n";
+            addHtml(F(",\n"));
           }
         }
-        TXBuffer += F("],\n");
+        addHtml(F("],\n"));
       }
 
       if (showTaskDetails) {
@@ -216,16 +233,16 @@ void handle_json()
       stream_last_json_object_value(F("TaskNumber"), String(TaskIndex + 1));
 
       if (TaskIndex != lastActiveTaskIndex) {
-        TXBuffer += ',';
+        addHtml(",");
       }
-      TXBuffer += '\n';
+      addHtml("\n");
     }
   }
 
   if (!showSpecificTask) {
-    TXBuffer += F("],\n");
-    stream_last_json_object_value(F("TTL"), String(ttl_json * 1000));
+    addHtml(F("],\n"));
   }
+  stream_last_json_object_value(F("TTL"), String(lowest_ttl_json * 1000));
 
   TXBuffer.endStream();
 }
@@ -234,59 +251,15 @@ void handle_json()
 // JSON formatted timing statistics
 // ********************************************************************************
 
-void stream_timing_stats_json(unsigned long count, unsigned long minVal, unsigned long maxVal, float avg) {
-  stream_next_json_object_value(F("count"), String(count));
-  stream_next_json_object_value(F("min"),   String(minVal));
-  stream_next_json_object_value(F("max"),   String(maxVal));
-  stream_next_json_object_value(F("avg"),   String(avg));
-}
-
-void stream_plugin_function_timing_stats_json(
-  const String& object,
-  unsigned long count, unsigned long minVal, unsigned long maxVal, float avg) {
-  TXBuffer += "{\"";
-  TXBuffer += object;
-  TXBuffer += "\":{";
-  stream_timing_stats_json(count, minVal, maxVal, avg);
-  stream_last_json_object_value(F("unit"), F("usec"));
-}
-
-void stream_plugin_timing_stats_json(int pluginId) {
-  TXBuffer += '{';
-  stream_next_json_object_value(F("name"), getPluginNameFromDeviceIndex(pluginId));
-  stream_next_json_object_value(F("id"),   String(pluginId));
-  stream_json_start_array(F("function"));
-}
-
-void stream_json_start_array(const String& label) {
-  TXBuffer += '\"';
-  TXBuffer += label;
-  TXBuffer += F("\": [\n");
-}
-
-void stream_json_end_array_element(bool isLast) {
-  if (isLast) {
-    TXBuffer += "]\n";
-  } else {
-    TXBuffer += ",\n";
-  }
-}
-
-void stream_json_end_object_element(bool isLast) {
-  TXBuffer += '}';
-
-  if (!isLast) {
-    TXBuffer += ',';
-  }
-  TXBuffer += '\n';
-}
-
 #ifdef WEBSERVER_NEW_UI
 void handle_timingstats_json() {
   TXBuffer.startJsonStream();
-  TXBuffer += '{';
+  json_init();
+  json_open();
+  # ifdef USES_TIMING_STATS
   jsonStatistics(false);
-  TXBuffer += '}';
+  # endif // ifdef USES_TIMING_STATS
+  json_close();
   TXBuffer.endStream();
 }
 
@@ -324,6 +297,59 @@ void handle_nodes_list_json() {
   TXBuffer.endStream();
 }
 
+void handle_buildinfo() {
+  if (!isLoggedIn()) { return; }
+  TXBuffer.startJsonStream();
+  json_init();
+  json_open();
+  {
+    json_open(true, F("plugins"));
+
+    for (deviceIndex_t x = 0; x <= deviceCount; x++) {
+      if (validPluginID(DeviceIndex_to_Plugin_id[x])) {
+        json_open();
+        json_number(F("id"), String(DeviceIndex_to_Plugin_id[x]));
+        json_prop(F("name"), getPluginNameFromDeviceIndex(x));
+        json_close();
+      }
+    }
+    json_close(true);
+  }
+  {
+    json_open(true, F("controllers"));
+
+    for (protocolIndex_t x = 0; x < CPLUGIN_MAX; x++) {
+      if (getCPluginID_from_ProtocolIndex(x) != INVALID_C_PLUGIN_ID) {
+        json_open();
+        json_number(F("id"), String(x + 1));
+        json_prop(F("name"), getCPluginNameFromProtocolIndex(x));
+        json_close();
+      }
+    }
+    json_close(true);
+  }
+  {
+    json_open(true, F("notifications"));
+
+    for (byte x = 0; x < NPLUGIN_MAX; x++) {
+      if (validNPluginID(NPlugin_id[x])) {
+        json_open();
+        json_number(F("id"), String(x + 1));
+        json_prop(F("name"), getNPluginNameFromNotifierIndex(x));
+        json_close();
+      }
+    }
+    json_close(true);
+  }
+  json_prop(LabelType::BUILD_DESC);
+  json_prop(LabelType::GIT_BUILD);
+  json_prop(LabelType::SYSTEM_LIBRARIES);
+  json_prop(LabelType::PLUGIN_COUNT);
+  json_prop(LabelType::PLUGIN_DESCRIPTION);
+  json_close();
+  TXBuffer.endStream();
+}
+
 #endif // WEBSERVER_NEW_UI
 
 
@@ -332,35 +358,43 @@ void handle_nodes_list_json() {
 \*********************************************************************************************/
 void stream_to_json_value(const String& value) {
   if ((value.length() == 0) || !isFloat(value)) {
-    TXBuffer += '\"';
-    TXBuffer += value;
-    TXBuffer += '\"';
+    String html;
+    html.reserve(value.length() + 2);
+    html += '\"';
+    html += value;
+    html += '\"';
+    addHtml(html);
   } else {
-    TXBuffer += value;
+    addHtml(value);
   }
 }
 
 void stream_to_json_object_value(const String& object, const String& value) {
-  TXBuffer += '\"';
-  TXBuffer += object;
-  TXBuffer += "\":";
+  String html;
+
+  html.reserve(object.length() + 4);
+
+  html += '\"';
+  html += object;
+  html += "\":";
+  addHtml(html);
   stream_to_json_value(value);
 }
 
 String jsonBool(bool value) {
-  return toString(value);
+  return boolToString(value);
 }
 
 // Add JSON formatted data directly to the TXbuffer, including a trailing comma.
 void stream_next_json_object_value(const String& object, const String& value) {
-  TXBuffer += to_json_object_value(object, value);
-  TXBuffer += ",\n";
+  addHtml(to_json_object_value(object, value));
+  addHtml(F(",\n"));
 }
 
 // Add JSON formatted data directly to the TXbuffer, including a closing '}'
 void stream_last_json_object_value(const String& object, const String& value) {
-  TXBuffer += to_json_object_value(object, value);
-  TXBuffer += "\n}";
+  addHtml(to_json_object_value(object, value));
+  addHtml(F("\n}"));
 }
 
 void stream_next_json_object_value(LabelType::Enum label) {

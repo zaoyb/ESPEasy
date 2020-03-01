@@ -515,6 +515,8 @@ uint16_t IRsend::minRepeats(const decode_type_t protocol) {
       return kDishMinRepeat;
     case SONY:
       return kSonyMinRepeat;
+    case SONY_38K:
+      return kSonyMinRepeat + 1;
     default:
       return kNoRepeat;
   }
@@ -545,6 +547,7 @@ uint16_t IRsend::defaultBits(const decode_type_t protocol) {
       return 16;
     case RC6:
     case SONY:
+    case SONY_38K:
       return 20;
     case COOLIX:
     case INAX:
@@ -608,12 +611,16 @@ uint16_t IRsend::defaultBits(const decode_type_t protocol) {
       return kHitachiAc1Bits;
     case HITACHI_AC2:
       return kHitachiAc2Bits;
+    case HITACHI_AC424:
+      return kHitachiAc424Bits;
     case KELVINATOR:
       return kKelvinatorBits;
     case MITSUBISHI_AC:
       return kMitsubishiACBits;
     case MITSUBISHI136:
       return kMitsubishi136Bits;
+    case MITSUBISHI112:
+      return kMitsubishi112Bits;
     case MITSUBISHI_HEAVY_152:
       return kMitsubishiHeavy152Bits;
     case MITSUBISHI_HEAVY_88:
@@ -814,6 +821,9 @@ bool IRsend::send(const decode_type_t type, const uint64_t data,
     case SONY:
       sendSony(data, nbits, min_repeat);
       break;
+    case SONY_38K:
+      sendSony38(data, nbits, min_repeat);
+      break;
 #endif
 #if SEND_TECO
     case TECO:
@@ -932,6 +942,11 @@ bool IRsend::send(const decode_type_t type, const unsigned char *state,
       sendHitachiAC2(state, nbytes);
       break;
 #endif  // SEND_HITACHI_AC2
+#if SEND_HITACHI_AC424
+    case HITACHI_AC424:
+      sendHitachiAc424(state, nbytes);
+      break;
+#endif  // SEND_HITACHI_AC424
 #if SEND_KELVINATOR
     case KELVINATOR:
       sendKelvinator(state, nbytes);
@@ -947,6 +962,11 @@ bool IRsend::send(const decode_type_t type, const unsigned char *state,
       sendMitsubishi136(state, nbytes);
       break;
 #endif  // SEND_MITSUBISHI136
+#if SEND_MITSUBISHI112
+    case MITSUBISHI112:
+      sendMitsubishi112(state, nbytes);
+      break;
+#endif  // SEND_MITSUBISHI112
 #if SEND_MITSUBISHIHEAVY
     case MITSUBISHI_HEAVY_88:
       sendMitsubishiHeavy88(state, nbytes);
